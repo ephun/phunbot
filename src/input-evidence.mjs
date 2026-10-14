@@ -1,0 +1,6 @@
+export function reviewModel(model,images=false){if(!model)throw Error('Independent reviewer unavailable');return images?{...model,input:['text','image']}:model;}
+export function imageRoleAllowed(selected,roles){return typeof roles?.vision==='string'&&roles.vision.length>0&&selected===roles.vision;}
+export function selectableModelIds(roles={}){return new Set(['fleet-fast','fleet-fast-spark','fleet-deep','fleet-vision','fleet-code',...['executor','reviewer','vision','code'].map(r=>roles[r]).filter(x=>typeof x==='string'&&x.length)]);}
+export function planReviewData(manager,goal,criteria,registeredReviewers={vision:false,text:false}){return {reviewPhase:'proposed_plan_coverage',goal,criteria,registeredReviewers,declaredVerifierCapabilities:{attachedImageReview:true,candidateAnswerReview:true},attachmentCount:goalImages(manager,goal.created).length};}
+export function requirePlanEvidenceReview(reviewData,criteria){if(reviewData?.attachmentCount>0&&!criteria?.some(c=>c?.verifier?.kind==='evidence_review'))throw Error('Image goals require an evidence_review criterion');return true;}
+export function goalImages(manager,created){return manager.getBranch().filter(e=>e.type==='message'&&e.message.role==='user'&&e.message.timestamp>=Date.parse(created)).flatMap(e=>Array.isArray(e.message.content)?e.message.content.filter(c=>c.type==='image'):[]);}

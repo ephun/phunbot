@@ -1,0 +1,568 @@
+{
+  "id": "xMqVJdNiwZWoPSdJ",
+  "name": "phunbot \u2014 Recovery and memory review",
+  "description": null,
+  "active": true,
+  "activeVersionId": "89993498-ef64-4a95-a5e3-98b0a0cd057e",
+  "createdAt": "2026-10-13T21:29:23.500Z",
+  "updatedAt": "2026-10-14T17:32:44.236Z",
+  "isArchived": false,
+  "versionId": "89993498-ef64-4a95-a5e3-98b0a0cd057e",
+  "versionCounter": 7,
+  "sourceWorkflowId": null,
+  "triggerCount": 2,
+  "nodes": [
+    {
+      "id": "manual",
+      "name": "Manual verification",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "schedule",
+      "name": "Every five minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "webhook",
+      "name": "Authorized verification",
+      "webhookId": "<deployment webhook id omitted>",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        400
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "phunbot-maintenance-1afa80a1-6e36-4bab-8cb3-16e051f0f516",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "<deployment credential binding omitted>"
+        }
+      }
+    },
+    {
+      "id": "resume",
+      "name": "Resume goals",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        300,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://<phunraid-lan-host>:8504/api/resume",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {
+          "timeout": 60000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "<deployment credential binding omitted>"
+        }
+      }
+    },
+    {
+      "id": "maintenance",
+      "name": "Review memory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://<phunraid-lan-host>:8504/api/maintenance",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {
+          "timeout": 150000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "<deployment credential binding omitted>"
+        }
+      }
+    },
+    {
+      "id": "validate",
+      "name": "Validate results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const r=$('Resume goals').first().json; const m=$input.first().json; if(r.ok!==true || m.ok!==true || !Array.isArray(m.checks)) throw new Error('phunbot maintenance postconditions failed'); return [{json:{ok:true,resumed:r.started,notes:m.notes,checks:m.checks}}];"
+      }
+    },
+    {
+      "id": "388b1c05-2154-4593-9c55-86c1dc1fb059",
+      "name": "Read deployed revision",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        140,
+        200
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://<phunraid-lan-host>:8504/health",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "32f28d8f-8462-493c-8649-0b656c5661ce",
+      "name": "Require reviewed revision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        230,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const h=$input.first().json; if(h.ok!==true || h.name!=='phunbot' || h.startupAppSha256!==\"a986f98c734c7e512a4a4a1b19e4a21e488080ec0e7e92ffd21f99f8cbe7edbe\") throw new Error('WAITING_FOR_OWNER_RELOAD: reviewed phunbot source is not loaded; no goal or memory model calls dispatched'); return $input.all();"
+      }
+    }
+  ],
+  "connections": {
+    "Manual verification": {
+      "main": [
+        [
+          {
+            "node": "Read deployed revision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every five minutes": {
+      "main": [
+        [
+          {
+            "node": "Read deployed revision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorized verification": {
+      "main": [
+        [
+          {
+            "node": "Read deployed revision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resume goals": {
+      "main": [
+        [
+          {
+            "node": "Review memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review memory": {
+      "main": [
+        [
+          {
+            "node": "Validate results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read deployed revision": {
+      "main": [
+        [
+          {
+            "node": "Require reviewed revision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Require reviewed revision": {
+      "main": [
+        [
+          {
+            "node": "Resume goals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 180,
+    "timezone": "America/Denver",
+    "executionOrder": "v1"
+  },
+  "staticData": {
+    "node:Every five minutes": {
+      "recurrenceRules": [
+        null
+      ],
+      "recurrenceRuleSignatures": [
+        null
+      ]
+    }
+  },
+  "pinData": null,
+  "meta": null,
+  "tags": [],
+  "shared": [
+    {
+      "role": "workflow:owner",
+      "workflowId": "xMqVJdNiwZWoPSdJ",
+      "projectId": "EjipCmSZuE0tMnDs",
+      "project": {
+        "id": "EjipCmSZuE0tMnDs",
+        "name": "Ethan Kendrick <ethanjkendrick@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "9512008d-14e7-4b90-8c30-2e0fe1437f35",
+        "createdAt": "2025-12-12T06:42:21.675Z",
+        "updatedAt": "2025-12-12T07:04:34.168Z"
+      },
+      "createdAt": "2026-10-13T21:29:23.501Z",
+      "updatedAt": "2026-10-13T21:29:23.501Z"
+    }
+  ],
+  "activeVersion": {
+    "versionId": "89993498-ef64-4a95-a5e3-98b0a0cd057e",
+    "workflowId": "xMqVJdNiwZWoPSdJ",
+    "nodes": [
+      {
+        "id": "manual",
+        "name": "Manual verification",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {}
+      },
+      {
+        "id": "schedule",
+        "name": "Every five minutes",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          200
+        ],
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "*/5 * * * *"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "webhook",
+        "name": "Authorized verification",
+        "webhookId": "<deployment webhook id omitted>",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          400
+        ],
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "phunbot-maintenance-1afa80a1-6e36-4bab-8cb3-16e051f0f516",
+          "authentication": "headerAuth",
+          "responseMode": "lastNode"
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "name": "<deployment credential binding omitted>"
+          }
+        }
+      },
+      {
+        "id": "resume",
+        "name": "Resume goals",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          300,
+          200
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "http://<phunraid-lan-host>:8504/api/resume",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "{}",
+          "options": {
+            "timeout": 60000,
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "name": "<deployment credential binding omitted>"
+          }
+        }
+      },
+      {
+        "id": "maintenance",
+        "name": "Review memory",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          600,
+          200
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "http://<phunraid-lan-host>:8504/api/maintenance",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "{}",
+          "options": {
+            "timeout": 150000,
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "credentials": {
+          "httpHeaderAuth": {
+            "name": "<deployment credential binding omitted>"
+          }
+        }
+      },
+      {
+        "id": "validate",
+        "name": "Validate results",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          900,
+          200
+        ],
+        "parameters": {
+          "jsCode": "const r=$('Resume goals').first().json; const m=$input.first().json; if(r.ok!==true || m.ok!==true || !Array.isArray(m.checks)) throw new Error('phunbot maintenance postconditions failed'); return [{json:{ok:true,resumed:r.started,notes:m.notes,checks:m.checks}}];"
+        }
+      },
+      {
+        "id": "388b1c05-2154-4593-9c55-86c1dc1fb059",
+        "name": "Read deployed revision",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          140,
+          200
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "http://<phunraid-lan-host>:8504/health",
+          "options": {
+            "timeout": 15000,
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "32f28d8f-8462-493c-8649-0b656c5661ce",
+        "name": "Require reviewed revision",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          230,
+          200
+        ],
+        "parameters": {
+          "jsCode": "const h=$input.first().json; if(h.ok!==true || h.name!=='phunbot' || h.startupAppSha256!==\"a986f98c734c7e512a4a4a1b19e4a21e488080ec0e7e92ffd21f99f8cbe7edbe\") throw new Error('WAITING_FOR_OWNER_RELOAD: reviewed phunbot source is not loaded; no goal or memory model calls dispatched'); return $input.all();"
+        }
+      }
+    ],
+    "connections": {
+      "Manual verification": {
+        "main": [
+          [
+            {
+              "node": "Read deployed revision",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Every five minutes": {
+        "main": [
+          [
+            {
+              "node": "Read deployed revision",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Authorized verification": {
+        "main": [
+          [
+            {
+              "node": "Read deployed revision",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Resume goals": {
+        "main": [
+          [
+            {
+              "node": "Review memory",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Review memory": {
+        "main": [
+          [
+            {
+              "node": "Validate results",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Read deployed revision": {
+        "main": [
+          [
+            {
+              "node": "Require reviewed revision",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Require reviewed revision": {
+        "main": [
+          [
+            {
+              "node": "Resume goals",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Ethan Kendrick",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "createdAt": "2026-10-14T17:32:44.236Z",
+    "updatedAt": "2026-10-14T17:32:44.236Z",
+    "workflowPublishHistory": [
+      {
+        "id": 152,
+        "workflowId": "xMqVJdNiwZWoPSdJ",
+        "versionId": "89993498-ef64-4a95-a5e3-98b0a0cd057e",
+        "event": "activated",
+        "userId": "9512008d-14e7-4b90-8c30-2e0fe1437f35",
+        "createdAt": "2026-10-14T17:32:44.351Z"
+      }
+    ]
+  }
+}

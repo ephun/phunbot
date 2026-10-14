@@ -1,0 +1,3 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {Value} from '@sinclair/typebox/value';import {blockerKindSchema,verificationSchema} from '../tool-schemas.mjs';
+test('verification accepts an explicit bounded candidate answer',()=>{assert.equal(Value.Check(verificationSchema,{taskId:'x',answer:'Red background, blue square'}),true);assert.equal(Value.Check(verificationSchema,{taskId:'x',answer:42}),false);});
+test('the native tool schema exposes every supported genuine blocker kind',()=>{for(const kind of ['authorization','safety','information','dependency'])assert.equal(Value.Check(blockerKindSchema,kind),true);assert.equal(Value.Check(blockerKindSchema,'bored'),false);});

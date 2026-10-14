@@ -1,0 +1,2 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {evictable} from '../runtime-cache.mjs';
+test('runtime eviction preserves executing sessions and maintenance leases',()=>{const sessions=new Map([['active',{lastUsed:0,busy:true}],['maintenance',{lastUsed:1,maintenance:true}],['opening',{lastUsed:2}],['old',{lastUsed:3}],['new',{lastUsed:4}]]);assert.equal(evictable(sessions,new Set(['opening']))[0],'old');assert.equal(evictable(new Map([['active',{busy:true}]]),new Set()),undefined);});

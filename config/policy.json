@@ -1,0 +1,30 @@
+{
+  "provider": "litellm",
+  "roles": {
+    "executor": "fleet-fast",
+    "reviewer": "fleet-vision",
+    "vision": "fleet-vision",
+    "embedding": "fleet-embed"
+  },
+  "limits": {
+    "turns": 80,
+    "ms": 14400000,
+    "sliceMs": 600000,
+    "maxModelTurns": 80,
+    "maxRetries": 3,
+    "maxActiveGoals": 2,
+    "maxOpenSessions": 3,
+    "maxOutputTokens": 8192,
+    "dependencyProbeMs": 300000
+  },
+  "maintenance": {
+    "maxPairsPerRun": 2,
+    "reviewTimeoutMs": 20000,
+    "maxReviewAttempts": 2
+  },
+  "routing": {
+    "enabled": true,
+    "reviewFailuresBeforeEscalation": 3,
+    "escalationModel": "fleet-fast"
+  }
+}

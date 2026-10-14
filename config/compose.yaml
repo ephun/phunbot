@@ -1,0 +1,29 @@
+services:
+  phunbot:
+    image: node:22.19.0-bookworm-slim
+    container_name: phunbot
+    hostname: phunbot
+    user: '10000:10000'
+    command: [node, /app/server.mjs]
+    working_dir: /app
+    environment:
+      PHUNBOT_ROOT: /data
+      PI_CODING_AGENT_DIR: /data/config/pi/agent
+      HOME: /data
+      HOST: 0.0.0.0
+      PORT: '8504'
+    volumes:
+      - /mnt/user/phunbot:/data
+      - /mnt/user/phunbot/src:/app:ro
+    ports:
+      - '192.168.0.73:8504:8504'
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    labels:
+      net.unraid.docker.managed: compose
+      net.unraid.docker.webui: http://phunraid:8504
+      net.unraid.docker.icon: https://pi.dev/favicon.svg

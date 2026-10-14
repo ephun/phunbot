@@ -1,0 +1,1 @@
+export function limitPayload(payload,maximum){const field='input'in payload?'max_output_tokens':'max_completion_tokens'in payload?'max_completion_tokens':'max_tokens';return {...payload,[field]:Math.min(payload[field]??maximum,maximum)};}

@@ -1,0 +1,14 @@
+# Runtime and authoritative data are deliberately not committed
+src/node_modules/
+src/vendor/**/node_modules/
+config/secrets/
+config/pi/agent/
+state/
+cache/
+work/
+memory/
+bin/
+evidence/
+*.stage
+*.tmp
+*.bak

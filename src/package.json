@@ -1,0 +1,1 @@
+{"name":"phunbot","version":"0.1.0","private":true,"type":"module","scripts":{"test":"node --test test/*.test.mjs","start":"node server.mjs"},"dependencies":{"@earendil-works/pi-coding-agent":"1.2.0","@modelcontextprotocol/sdk":"^1.0.0","@sinclair/typebox":"^0.34.0","ical.js":"^2.2.1"},"devDependencies":{"playwright":"^1.64.0"}}
