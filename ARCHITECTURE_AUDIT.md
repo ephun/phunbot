@@ -34,7 +34,7 @@ Recorded before publication:
 
 The 94 tests are deterministic source tests. They prove the tested seams and contracts only; they do not prove multi-hour unattended execution, production authorized writes, or complete UI quality. Existing baseline acceptance evidence remains in the authoritative Unraid tree and was not copied into the review publication.
 
-The original Git history was inspected for secret-like material. Current-tree matches are fixture/configuration references, but historical matches include removed operational AMP scripts. A clean one-commit publication history was therefore prepared instead of exposing the original history. The publication excludes `state/`, `cache/`, `work/`, `memory/`, `evidence/`, secrets, Pi provider configuration, runtime artifacts, the deployment CA, and dependencies. The n8n workflow was reduced to a sanitized template with credential bindings, webhook ID, and LAN host replaced by placeholders.
+The original Git history was inspected for secret-like material. Current-tree matches are fixture/configuration references, but historical matches include removed operational AMP scripts. A clean source-only publication history was therefore prepared instead of exposing the original history. The publication excludes `state/`, `cache/`, `work/`, `memory/`, `evidence/`, secrets, Pi provider configuration, runtime artifacts, the deployment CA, and dependencies. The n8n workflow was reduced to a sanitized template with credential bindings, webhook ID, and LAN host replaced by placeholders.
 
 ## Component and responsibility inventory
 
