@@ -7,7 +7,16 @@ import type { AmpClient } from "../amp-client.js";
 import { withTrace, type Logger } from "../logger.js";
 import { jsonContent } from "./shared.js";
 
-const defaultRoots = ["/opt/data/dynmap-build", "/opt/data/coreprotect-build"];
+function confinedRemote(value: string, allowRoot = false): string {
+  if(typeof value !== 'string' || !value || /[\\%\x00-\x1f]/.test(value) || value.startsWith('/') || value.split('/').includes('..')) throw new Error('A confined instance-relative path is required');
+  const clean=value.replace(/^(?:\.\/)+/,'').replace(/\/{2,}/g,'/');
+  if(!clean || clean==='.') {if(allowRoot)return './';throw new Error('A non-root confined path is required');}
+  return clean;
+}
+function confinedFilename(value:string):string {
+  if(!value || value==='.' || value==='..' || /[\\/\x00-\x1f%]/.test(value))throw new Error('A confined filename is required');return value;
+}
+const defaultRoots = ["/tmp/amp-dynmap-build", "/tmp/amp-coreprotect-build"];
 
 async function approvedLocalFile(path: string): Promise<string> {
   const actual = await realpath(resolve(path));
@@ -28,7 +37,7 @@ export function registerFileTools(server: McpServer, amp: AmpClient, log: Logger
       path: z.string().default("./").describe("Instance-relative directory path"),
     },
   }, withTrace(log, "amp_list_files", async ({ instanceId, path }) =>
-    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.GetDirectoryListing(path))),
+    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.GetDirectoryListing(confinedRemote(path,true)))),
   ));
 
   server.registerTool("amp_read_text_file", {
@@ -41,7 +50,7 @@ export function registerFileTools(server: McpServer, amp: AmpClient, log: Logger
     },
   }, withTrace(log, "amp_read_text_file", async ({ instanceId, path, maxBytes }) =>
     amp.withInstance(instanceId, async (inst) => {
-      const result = await inst.FileManagerPlugin.ReadFileChunk(path, 0, maxBytes);
+      const result = await inst.FileManagerPlugin.ReadFileChunk(confinedRemote(path), 0, maxBytes);
       if (!result.Status) throw new Error(`AMP could not read ${path}: ${result.Reason}`);
       const decoded = Buffer.from(result.Result, "base64");
       return { content: [{ type: "text" as const, text: decoded.toString("utf8") }] };
@@ -56,7 +65,7 @@ export function registerFileTools(server: McpServer, amp: AmpClient, log: Logger
       path: z.string().min(1).describe("Instance-relative file path"),
     },
   }, withTrace(log, "amp_file_md5", async ({ instanceId, path }) =>
-    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.CalculateFileMD5Sum(path))),
+    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.CalculateFileMD5Sum(confinedRemote(path)))),
   ));
 
   if (!allowWrites) return;
@@ -70,7 +79,7 @@ export function registerFileTools(server: McpServer, amp: AmpClient, log: Logger
       newFilename: z.string().min(1).refine((value) => !value.includes("/") && !value.includes("\\"), "Must be a filename, not a path"),
     },
   }, withTrace(log, "amp_rename_file", async ({ instanceId, path, newFilename }) =>
-    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.RenameFile(path, newFilename))),
+    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.RenameFile(confinedRemote(path), confinedFilename(newFilename)))),
   ));
 
   server.registerTool("amp_create_directory", {
@@ -81,7 +90,7 @@ export function registerFileTools(server: McpServer, amp: AmpClient, log: Logger
       path: z.string().min(1).describe("Instance-relative directory path"),
     },
   }, withTrace(log, "amp_create_directory", async ({ instanceId, path }) =>
-    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.CreateDirectory(path))),
+    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.CreateDirectory(confinedRemote(path)))),
   ));
 
   server.registerTool("amp_create_archive", {
@@ -92,7 +101,7 @@ export function registerFileTools(server: McpServer, amp: AmpClient, log: Logger
       path: z.string().min(1).describe("Instance-relative file or directory to archive"),
     },
   }, withTrace(log, "amp_create_archive", async ({ instanceId, path }) =>
-    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.CreateArchive(path))),
+    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.CreateArchive(confinedRemote(path)))),
   ));
 
   server.registerTool("amp_copy_file", {
@@ -104,7 +113,7 @@ export function registerFileTools(server: McpServer, amp: AmpClient, log: Logger
       targetDirectory: z.string().min(1).describe("Destination instance-relative directory"),
     },
   }, withTrace(log, "amp_copy_file", async ({ instanceId, path, targetDirectory }) =>
-    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.CopyFile(path, targetDirectory))),
+    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.CopyFile(confinedRemote(path), confinedRemote(targetDirectory)))),
   ));
 
   server.registerTool("amp_trash_file", {
@@ -115,20 +124,25 @@ export function registerFileTools(server: McpServer, amp: AmpClient, log: Logger
       path: z.string().min(1).describe("Instance-relative file path"),
     },
   }, withTrace(log, "amp_trash_file", async ({ instanceId, path }) =>
-    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.TrashFile(path))),
+    amp.withInstance(instanceId, async (inst) => jsonContent(await inst.FileManagerPlugin.TrashFile(confinedRemote(path)))),
   ));
 
   server.registerTool("amp_upload_file", {
     title: "Upload staged file to AMP instance",
-    description: "Upload a local file from an approved staging root and verify it using AMP's server-side MD5.",
+    description: "Upload exact SHA256-approved staged bytes, then read back AMP's server-side MD5 checksum.",
     inputSchema: {
       instanceId: z.string().describe("Instance UUID, as returned by amp_list_instances"),
       localPath: z.string().min(1).describe("Absolute local path under an approved upload root"),
       remotePath: z.string().min(1).describe("Destination instance-relative file path"),
+      expectedSha256: z.string().regex(/^[a-f0-9]{64}$/i).describe("Exact owner-approved SHA256 of the staged artifact bytes"),
     },
-  }, withTrace(log, "amp_upload_file", async ({ instanceId, localPath, remotePath }) => {
+  }, withTrace(log, "amp_upload_file", async ({ instanceId, localPath, remotePath, expectedSha256 }) => {
+    remotePath = confinedRemote(remotePath);
     const actual = await approvedLocalFile(localPath);
     const data = await readFile(actual);
+    if(data.length===0)throw new Error('Empty uploads are unsupported; no remote write was performed');
+    const sha256 = createHash("sha256").update(data).digest("hex");
+    if (sha256 !== expectedSha256?.toLowerCase()) throw new Error("Staged bytes differ from the owner-approved SHA256");
     if (data.length > 64 * 1024 * 1024) throw new Error("Upload exceeds the 64 MiB safety limit");
     return amp.withInstance(instanceId, async (inst) => {
       const chunkSize = 512 * 1024;
@@ -141,7 +155,7 @@ export function registerFileTools(server: McpServer, amp: AmpClient, log: Logger
       const remote = await inst.FileManagerPlugin.CalculateFileMD5Sum(remotePath);
       const remoteMd5 = String(remote.Result ?? "").toLowerCase();
       if (!remote.Status || remoteMd5 !== localMd5) throw new Error(`Upload checksum mismatch for ${basename(actual)}: local=${localMd5}, remote=${remoteMd5 || "unavailable"}`);
-      return jsonContent({ uploaded: true, localPath: actual, remotePath, sizeBytes: data.length, md5: localMd5 });
+      return jsonContent({ uploaded: true, effectVerified: true, sha256, localPath: actual, remotePath, sizeBytes: data.length, md5: localMd5, verification: { kind: "fresh_server_md5", value: remoteMd5 } });
     });
   }));
 }

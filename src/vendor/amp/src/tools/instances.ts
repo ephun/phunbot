@@ -120,12 +120,13 @@ export function registerInstanceTools(
     "amp_force_restart_wrapper",
     {
       title: "Force restart AMP wrapper",
-      description: "Restart an unavailable AMP child wrapper through ADS. Pass the exact AMP InstanceName in instanceId; intended for control-plane recovery only.",
+      description: "Restart an unavailable AMP child wrapper through ADS. Pass the exact InstanceID UUID; the adapter resolves its current InstanceName. Intended for control-plane recovery only.",
       inputSchema: instanceIdField,
     },
-    withTrace(log, "amp_force_restart_wrapper", async ({ instanceId }) =>
-      amp.withController(async (c) => jsonContent(await c.ADSModule.RestartInstance(instanceId))),
-    ),
+    withTrace(log, "amp_force_restart_wrapper", async ({ instanceId }) => {
+      const instance = await resolveInstance(instanceId);
+      return amp.withController(async (c) => jsonContent(await c.ADSModule.RestartInstance(instance.InstanceName)));
+    }),
   );
 
   server.registerTool(

@@ -1,1 +1,250 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>phunbot</title><style>body{margin:0;background:#10141c;color:#e2e8f0;font:15px system-ui;display:flex;height:100vh}aside{width:260px;background:#171e29;padding:20px;overflow:auto;border-right:1px solid #303a49}main{flex:1;display:flex;flex-direction:column;min-width:0}header{padding:18px;border-bottom:1px solid #303a49;display:flex;gap:12px;align-items:center}h1{font-size:22px;letter-spacing:.02em;margin:0 0 20px}button,input,select,textarea{color:inherit;background:#242e3e;border:1px solid #445167;border-radius:8px;padding:10px;font:inherit}button{cursor:pointer}button:hover{background:#35435a}aside button{width:100%;text-align:left;margin:5px 0}#messages{flex:1;overflow:auto;padding:24px;white-space:pre-wrap;overflow-wrap:anywhere}.message{max-width:900px;padding:14px;margin:12px auto;background:#192230;border-radius:10px}.user{border-left:3px solid #63b3ed}.tool{font:12px monospace;color:#a9b7cb}.role{font-size:12px;color:#96a8c0;margin-bottom:8px}form{padding:18px;border-top:1px solid #303a49;display:flex;gap:10px;flex-wrap:wrap}textarea{flex:1;min-width:180px;resize:vertical}#status{color:#9bd6a9;font-size:13px}.folder{margin-top:18px;color:#9cacbe;font-size:12px;text-transform:uppercase}#login{position:fixed;inset:0;background:#10141c;display:flex;align-items:center;justify-content:center;z-index:2}#login>div{max-width:420px;padding:30px}.hidden{display:none!important}@media(max-width:700px){aside{width:140px;padding:12px}header{flex-wrap:wrap}button{padding:8px}}</style></head><body><aside><h1>phunbot</h1><button id="new">New conversation</button><div id="history"></div></aside><main><header><select id="model"><option>fleet-fast</option><option>fleet-deep</option><option>fleet-vision</option><option>fleet-code</option><option>fleet-fast-spark</option></select><button id="folder">Move to folder</button><button id="approvals">Approvals</button><button id="cancel">Cancel</button><span id="status">Ready</span></header><div id="messages"></div><form id="composer"><textarea id="prompt" rows="3" placeholder="Ask a question, or use /goal for persistent work" required></textarea><input id="image" type="file" accept="image/png,image/jpeg,image/webp"><button type="submit">Send</button></form></main><div id="login"><div><h1>phunbot</h1><p>Enter your local access token. Your Pi model credentials stay on the server.</p><input id="token" type="password" autocomplete="current-password" placeholder="Access token"><button id="connect">Open phunbot</button><p id="loginerror"></p></div></div><script src="/ui.js" defer></script><dialog id="approvaldialog" style="background:#171e29;color:#e2e8f0;max-width:720px;border:1px solid #445167;border-radius:10px"><h2>Approve an exact operation</h2><pre id="approvaldetail" style="white-space:pre-wrap"></pre><button id="approveonce">Approve once</button> <button id="denyaction">Deny</button> <button id="closeapproval">Not now</button></dialog></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>phunbot</title>
+    <link rel="stylesheet" href="/ui.css" />
+    <script defer src="/assets/marked.js"></script>
+    <script defer src="/assets/purify.js"></script>
+    <script defer src="/assets/icons.js"></script>
+    <script defer src="/assets/sha256.js"></script>
+    <script type="module" src="/ui.js"></script>
+  </head>
+  <body>
+    <aside id="sidebar" aria-label="Conversation navigation">
+      <div class="brand">
+        <span class="brand-mark">p</span><span>phunbot</span
+        ><button
+          id="close-sidebar"
+          class="icon-button mobile-only"
+          aria-label="Close sidebar"
+          title="Close sidebar"
+        >
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <button id="new" class="new-conversation">
+        <i data-lucide="square-pen"></i>New conversation
+      </button>
+      <label class="search"
+        ><i data-lucide="search"></i
+        ><input
+          id="search"
+          type="search"
+          placeholder="Find a conversation"
+          aria-label="Find a conversation"
+      /></label>
+      <div class="section-heading">
+        <span>Your conversations</span
+        ><button
+          id="new-folder"
+          class="icon-button"
+          aria-label="Create folder"
+          title="Create folder"
+        >
+          <i data-lucide="folder-plus"></i>
+        </button>
+      </div>
+      <nav id="history" aria-label="Conversations"></nav>
+      <div class="sidebar-footer">
+        <label
+          ><input id="show-validation" type="checkbox" />Show validation
+          conversations</label
+        ><button id="disconnect" class="text-button">Disconnect</button>
+      </div>
+    </aside>
+    <button
+      id="sidebar-scrim"
+      class="scrim hidden"
+      aria-label="Close navigation"
+    ></button>
+    <main>
+      <header>
+        <button
+          id="toggle-sidebar"
+          class="icon-button"
+          aria-label="Toggle sidebar"
+          title="Toggle sidebar"
+        >
+          <i data-lucide="panel-left"></i>
+        </button>
+        <div class="conversation-heading">
+          <span id="title">New conversation</span
+          ><span id="status" role="status" aria-live="polite">Ready</span>
+        </div>
+        <button
+          id="organize"
+          class="icon-button"
+          aria-label="Organize conversation"
+          title="Rename or move"
+        >
+          <i data-lucide="pencil"></i>
+        </button>
+        <button
+          id="progress"
+          class="icon-button"
+          aria-label="Inspect goal progress"
+          title="Goal progress"
+        >
+          <i data-lucide="list-checks"></i>
+        </button>
+        <button
+          id="approvals"
+          class="icon-button"
+          aria-label="Inspect pending authorizations"
+          title="Authorizations"
+        >
+          <i data-lucide="shield-check"></i>
+        </button>
+      </header>
+      <section id="messages" tabindex="0" aria-label="Conversation messages">
+        <div id="welcome">
+          <span class="eyebrow">A place to think and get things done</span>
+          <h1>What would you like to work on?</h1>
+          <p>Ask a question or describe an outcome.</p>
+        </div>
+      </section>
+      <div id="execution-area">
+        <details id="trace-panel">
+          <summary>
+            <i data-lucide="terminal"></i
+            ><span id="trace-count">Execution details</span>
+          </summary>
+          <div id="traces"></div>
+        </details>
+      </div>
+      <div id="composer-area">
+        <div id="attachment-preview" class="hidden"></div>
+        <form id="composer">
+          <textarea
+            id="prompt"
+            rows="1"
+            placeholder="Message phunbot"
+            aria-label="Message phunbot"
+          ></textarea>
+          <div class="composer-toolbar">
+            <button
+              id="attach"
+              type="button"
+              class="icon-button"
+              aria-label="Attach images"
+              title="Attach images"
+            >
+              <i data-lucide="paperclip"></i>
+            </button>
+            <input
+              id="image"
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              hidden
+            />
+            <label class="model-control"
+              ><select id="model" aria-label="Model">
+                <option value="fleet-fast">fleet-fast</option></select
+              ><i data-lucide="chevron-down"></i
+            ></label>
+            <span class="toolbar-space"></span>
+            <button
+              id="cancel"
+              type="button"
+              class="icon-button hidden"
+              aria-label="Stop execution"
+              title="Stop"
+            >
+              <i data-lucide="square"></i>
+            </button>
+            <button
+              id="send"
+              type="submit"
+              class="send-button"
+              aria-label="Send message"
+              title="Send"
+            >
+              <i data-lucide="arrow-up"></i>
+            </button>
+          </div>
+        </form>
+        <div id="notice" role="alert"></div>
+        <p class="composer-hint">
+          Enter to send · Shift + Enter for a new line
+        </p>
+      </div>
+    </main>
+    <div id="login">
+      <form id="login-form">
+        <span class="brand-mark">p</span>
+        <h1>Connect to phunbot</h1>
+        <p>
+          Use your conversation access token. Privileged operations require
+          separate owner authorization.
+        </p>
+        <label for="token">Access token</label
+        ><input id="token" type="password" autocomplete="off" required /><button
+          id="connect"
+          type="submit"
+          class="primary-button"
+        >
+          Connect
+        </button>
+        <p id="loginerror" role="alert"></p>
+      </form>
+    </div>
+    <dialog id="conversation-dialog">
+      <form id="conversation-form">
+        <h2>Organize conversation</h2>
+        <label for="conversation-title">Name</label
+        ><input id="conversation-title" required maxlength="200" /><label
+          for="conversation-folder"
+          >Folder</label
+        ><input
+          id="conversation-folder"
+          list="folder-names"
+          placeholder="Conversations"
+        /><datalist id="folder-names"></datalist>
+        <div class="dialog-actions">
+          <button type="button" data-close="conversation-dialog">Cancel</button
+          ><button
+            type="submit"
+            class="primary-button"
+            aria-label="Save conversation"
+          >
+            Save
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="folder-dialog">
+      <form id="folder-form">
+        <h2>Create folder</h2>
+        <label for="folder-name">Folder name</label
+        ><input id="folder-name" required maxlength="100" />
+        <div class="dialog-actions">
+          <button type="button" data-close="folder-dialog">Cancel</button
+          ><button type="submit" class="primary-button">Create folder</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="approvaldialog">
+      <h2>Pending authorizations</h2>
+      <p>
+        Inspect exact requested effects below. Approval requires the local owner
+        CLI; the conversation token cannot authorize privileged changes.
+      </p>
+      <div id="approvaldetail"></div>
+      <div class="dialog-actions">
+        <button id="denyaction" class="hidden">Deny selected operation</button
+        ><button type="button" data-close="approvaldialog">Close</button>
+      </div>
+    </dialog>
+    <dialog id="progress-dialog">
+      <h2>Goal progress</h2>
+      <div id="progress-detail"></div>
+      <div class="dialog-actions">
+        <button type="button" data-close="progress-dialog">Close</button>
+      </div>
+    </dialog>
+  </body>
+</html>
