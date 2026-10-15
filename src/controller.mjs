@@ -753,6 +753,8 @@ export class Controller {
   }
   async settle(id) {
     const current = await this.nc.get(id);
+    if (current.invalid)
+      return { continue: false, reason: "invalid_goal" };
     if (
       current.status === "NEEDS-ACTION" &&
       !current.blocker &&

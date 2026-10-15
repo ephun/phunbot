@@ -163,6 +163,16 @@ test("consequential tools require exact independently signed one-use approval wi
   assert.ok(events.length);
 });
 
+test("malformed runtime AMP instance scope fails closed", async () => {
+  const { p, root } = fixture();
+  fs.writeFileSync(root + "/config/permissions.json", JSON.stringify({ ampManagement: true, ampInstances: "fixture" }));
+  assert.equal((await p.check("mcp__amp__amp_restart_instance", { instanceId: "fixture" }, "g")).allowed, false);
+});
+
+test("raw shell execution remains denied at the authorization boundary", () => {
+  assert.equal(classify("bash", {}).mode, "deny");
+});
+
 test("signed durable scope grants only the permitted operation, instance and confined artifact path", async () => {
   const { p, root } = fixture();
   const scope = p.owner.sign({

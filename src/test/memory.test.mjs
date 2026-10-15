@@ -52,7 +52,7 @@ test("memory rejects symlink escapes and secrets while preserving prior source o
       m.put(
         "safe-note",
         "Safe",
-        "API_KEY=sk-test-secret-123456789abcdef",
+        "API_KEY=" + "controlled-test-fixture",
         "fixture",
       ),
     /secret/i,

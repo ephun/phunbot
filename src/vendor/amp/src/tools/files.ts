@@ -24,7 +24,7 @@ const defaultRoots: string[] = [];
 async function approvedLocalFile(path: string): Promise<string> {
   const actual = await realpath(resolve(path));
   const configured = (process.env.AMP_MCP_UPLOAD_ROOTS ?? defaultRoots.join(","))
-    .split(",").map((item) => resolve(item.trim())).filter(Boolean);
+    .split(",").map((item) => item.trim()).filter(Boolean).map((item) => resolve(item));
   if (!configured.some((root) => actual === root || actual.startsWith(root + sep))) {
     throw new Error(`Local upload path is outside approved roots: ${configured.join(", ") || "none configured"}`);
   }

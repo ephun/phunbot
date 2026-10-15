@@ -1,7 +1,6 @@
 import https from 'node:https';
 import tls from 'node:tls';
 import fs from 'node:fs';
-import crypto from 'node:crypto';
 import ICAL from 'ical.js';
 
 const UID = /^[a-zA-Z0-9-]+$/;
@@ -58,8 +57,8 @@ export class Nextcloud {
     let ca;
     try { ca = fs.readFileSync(`${this.root}/config/nextcloud-ca.pem`); } catch { throw new Error('Nextcloud TLS configuration unavailable'); }
     let pin;
-    try { pin = this.secret.certificateFingerprint256 ?? new crypto.X509Certificate(ca).fingerprint256; } catch { throw new Error('Nextcloud TLS configuration invalid'); }
-    if (typeof pin !== 'string' || !/^[a-f0-9:]{95}$/i.test(pin)) throw new Error('Nextcloud TLS configuration invalid');
+    try { pin = this.secret.certificateFingerprint256; } catch { throw new Error('Nextcloud TLS configuration invalid'); }
+    if (pin !== undefined && (typeof pin !== 'string' || !/^[a-f0-9:]{95}$/i.test(pin))) throw new Error('Nextcloud TLS configuration invalid');
     const auth = `Basic ${Buffer.from(`${this.secret.username}:${this.secret.password}`).toString('base64')}`;
     return await new Promise((resolve, reject) => {
       const req = https.request(target, {
@@ -74,7 +73,7 @@ export class Nextcloud {
         checkServerIdentity: (host, cert) => {
           const identityError = tls.checkServerIdentity(this.serverName || host, cert);
           if (identityError) return identityError;
-          if (cert.fingerprint256.toLowerCase() !== pin.toLowerCase()) return new Error('certificate pin mismatch');
+          if (pin && cert.fingerprint256.toLowerCase() !== pin.toLowerCase()) return new Error('certificate pin mismatch');
           return undefined;
         },
         headers: { ...headers, Host: target.host, Authorization: auth },

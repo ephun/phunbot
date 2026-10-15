@@ -1,41 +1,51 @@
-# Architecture revision — review candidate
+# Architecture revision — release preparation, not acceptance
 
-This branch is for independent source review. **It is not release acceptance and has not replaced the production baseline.** The earlier `ARCHITECTURE_AUDIT.md` describes the public baseline and remains historical review context.
+This repository is the canonical application implementation. Development, review, tests and any authorized deployment must use the same version-controlled source, not a separately sanitized private fork. Runtime configuration, credentials and operational data remain private and separate.
 
-## Responsibilities
+## Responsibilities reviewed
 
-Pi owns model execution and canonical sessions; Nextcloud Tasks owns request/goal/criterion state; Markdown owns durable semantic knowledge; n8n owns scheduled awakenings; MCP/native tools provide scoped capabilities. No parallel knowledge store or new agent framework was introduced.
+- Pi owns model execution and canonical conversations.
+- Nextcloud Tasks owns request, goal, criterion, coordination and lease state with ETag/CAS updates.
+- Per-conversation admission and durable request identity prevent retries from silently amending another request; independent conversations may execute concurrently.
+- Bounded slices yield without abandoning a goal. Provider failures back off, preserve identity/evidence and trigger strategy diagnosis. Cancellation and stale leases fence subsequent dispatch and verification writes.
+- Completion requires the exact criteria and accepted verification receipts. An assistant assertion is not evidence of an external effect.
+- Native/MCP capabilities are checked before dispatch. Privileged AMP writes additionally require explicit management policy, secure transport and independently signed exact or narrowly scoped owner authorization. Ordinary chat cannot approve them; chat denial/cancellation is deliberately non-privileged.
+- Markdown is the sole durable semantic memory source. Immediate learning is independently reviewed pre-write admission. Retrospective consolidation binds source IDs, rejects unsupported observations, preserves manual/canonical bytes and checkpoints bounded review under a lock.
+- n8n provides scheduled awakenings through authenticated APIs, not a second execution/state store. The published template is inactive and guards candidate identity before dispatch.
 
-- Durable request admission and CAS leases distinguish conversations, requests, goals and bounded attempts. A normal slice yield is not a failure or lifetime terminal state. Temporary failures back off; repeated ineffective strategies receive diagnosis instructions.
-- Outcome contracts allow proportionate answers and deterministic arithmetic without fabricated tool evidence. External effects still require fresh evidence and independent verification. Parent acceptance receipts fence stale criterion publication.
-- Declarative operation classifications and independently signed local owner decisions constrain privileged AMP effects. Ordinary chat bearer credentials cannot approve those effects. Write registration requires explicit policy and secure transport; authorization is not inferred from a tool name or retrieved note.
-- Immediate knowledge admission is explicitly a **pre-write** review, not evidence that storage has already occurred. The actual request and bounded observations are supplied independently. Appends preserve manual Markdown and revisions.
-- Retrospective consolidation reads canonical session records without migrating them, binds source IDs to permitted records, rejects untyped mutation-result laundering, and checkpoints bounded reviews incrementally under a lock. Relationship candidates are evaluated rather than linked automatically.
-- The browser projects canonical Pi history into conversation and collapsible diagnostics; it is not another message store. Markdown, icons, copy controls, folders, attachments and narrow-screen navigation have browser tests.
+## Demonstrated defects corrected
 
-## Confirmed corrections during validation
+| Area | Defect | Correction and evidence |
+|---|---|---|
+| Nextcloud transport | Deployment-specific Host/calendar identity; certificate pin was previously treated as identity verification | Host comes from configured URL; calendar is runtime-configured/encoded; CA-chain and hostname validation are mandatory; an explicit optional leaf pin is additive. TLS fixtures cover DNS/IP connection identity, hostname/pin failures and a CA-signed leaf. |
+| AMP source parity | Launcher used an independent mutable runtime-cache adapter | Launch the built adapter beside the reviewed source. Actual launcher regression places different cache/source fixtures and proves source selection. |
+| Upload boundary | Blank upload-root entries resolved to the working directory before filtering | Trim/filter blank entries before resolution. Regression reproduces the unintended authorization with a controlled working directory, then verifies no effect handler runs. |
+| Authorization | Raw shell was classified as read; malformed AMP instance scope disabled scoping | Shell is denied in capability classification; invalid instance-scope shapes fail closed. |
+| Completion | An invalidated parent with accepted criteria could settle as complete | Settlement now rejects `invalid` authoritative goals before completion. Regression observed premature completion before the fix. |
+| n8n credential handling | Workflow listing could follow redirects carrying a custom API-key header | Validate configured URL, reject credential/query/fragment/plaintext non-loopback endpoints and disable redirects. Two loopback endpoints reproduce leakage before the fix and prove no redirected request after it. |
+| Source identity | AMP manifests/source and Git identity missing or incorrectly scoped; startup-only health hid drift; incomplete CLI | Deterministic allowlisted manifest, exact HEAD, source-only dirty applicability, separate built-adapter identity, safe CLI, current-disk health and symlink/privacy regressions. |
+| Publication examples | Workflow export retained ownership/version metadata, active flag and a stale app-only guard; Compose retained host labels/paths | Inactive generic workflow template with full candidate identity gate; runtime-supplied source/data paths and no host-specific labels. |
 
-The captured maintenance HTTP 400 came from an invalid upstream embedding model name. Provider discovery supplied the display label `fleet-embed (incomplete metadata)`; the embeddings request must send the configured API ID `fleet-embed`. A regression test now checks that distinction. This was not diagnosed from HTTP status alone and was not a missing Nextcloud-fixture assumption.
+## Verification scope
 
-A clean checkout also exposed missing pinned browser dependencies in the manifests. The lockfile now includes the locally served Markdown/sanitization/icon/digest libraries. Browser screenshots wait for the actual mobile-sidebar geometry instead of capturing the beginning of its animation.
+Current commands/results and the final source manifest are recorded in the PR review receipt for the exact published revision. Earlier development counts and live-service claims are not reused as acceptance evidence. Run instructions are in `README.md`; manifest semantics and limits are in `docs/source-verification.md`.
 
-## Verified development checks
+Independent focused implementation reviews covered lifecycle/concurrency, authorization/TLS, memory/private storage and final source-identity/security changes. They are development reviews, not owner acceptance of the final published revision.
 
-- Application suite: **180 tests pass**, including an independent run on Node 22.19.0.
-- Vendored AMP adapter: **33 tests pass**, TypeScript build passes.
-- Isolated real browser: **20 checks pass**, no JavaScript errors. Desktop/mobile screenshots in `docs/screenshots/` contain controlled fixture content only, not private conversations or operational history.
-- Actual Pi/provider and isolated Nextcloud learning: immediate note storage, subsequent semantic retrieval with 1024-dimensional vectors, selective retrospective authoring, canonical-session byte preservation, and original-note preservation passed.
-- Real isolated service SIGKILL/restart: five controlled execution slices, same goal and criteria, prior evidence preserved. This uses a controlled executor with real isolated Nextcloud, not a claim of a live provider restart.
-- Controlled HTTP executor-failure injection demonstrates backoff and same-goal recovery. It is not a claim that a real upstream outage was induced.
-- Isolated baseline → candidate → rollback process smoke preserves manual-memory/checkpoint fixture hashes. It is not a production deployment or Docker-lifecycle test.
+## Explicit limitations
 
-Private logs, task identities, source-machine paths, provider configuration, runtime data and credentials are deliberately excluded. Source sanitization changes deployment-specific host/path literals to examples; private and public commits are distinct histories.
+- An external request already in flight cannot be undone by lease revocation or cancellation. Subsequent dispatch/results/verification are fenced, but there is no universal server-side fencing or exactly-once guarantee across all infrastructure APIs. Authorized mutation testing must verify the actual target's behavior and rollback semantics.
+- Atomic local checkpoints and in-process controller locks are not cross-process checkpoint CAS. Run one application writer per runtime data root; Nextcloud CAS does not make two independent local checkpoint writers safe.
+- Recovery between process restarts depends on an approved scheduler invoking resume. A template or unit test is not evidence of a real candidate n8n awakening.
+- Filesystem hashes are observations, not loaded-process attestations; mutable dependencies and external toolchains are outside the application-source hash. Quiescent immutable builds and separate dependency/build receipts remain necessary.
+- Current-tree sanitization does not erase previously published Git history. History scanning found credential-shaped test material and exported operational ownership metadata in earlier public commits. The current tree removes these; historical credential validity cannot be established by static scanning, and history rewriting/credential-response decisions require owner handling.
 
-## Open release gates
+## Remaining release gates
 
-1. Independent review of this PR and any resulting fixes.
-2. Explicitly approved disposable AMP instance and safe mutation/readback/rollback scope for an actual authorized infrastructure demonstration.
-3. Authorized production transition and exact-source verification; production remains unchanged.
-4. Actual n8n awakening of the candidate through an approved reachable path. The existing production workflow remains pinned to its accepted baseline; configuration readback is not candidate execution proof.
+1. Independent review of the final published revision and resulting fixes.
+2. Explicit authorization for a disposable AMP mutation/readback/rollback test.
+3. Explicit authorization for isolated candidate n8n awakening through an approved path.
+4. Explicit authorization for production deployment and exact-source verification.
+5. Authorized live rollback and durable-data preservation validation.
 
-The credential-free `node integration/native-faults.mjs` suite also passes against actual native Pi and a controlled loopback HTTP provider/Tasks fixture. It verifies bounded 503 failure/backoff followed by same-goal recovery, cancellation of a held native response followed by a real service-process SIGKILL/restart, and denial of a consequential native tool before its effect handler runs. The controlled provider and Tasks fixture remain alive while the actual application process restarts. This is not an induced live upstream outage or an actual AMP mutation.
+No production restart, deployment, real AMP mutation or production workflow change is part of this preparation. Automated tests do not close these gates. No telemetry or UI redesign is included.

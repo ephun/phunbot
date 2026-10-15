@@ -1,50 +1,51 @@
 # phunbot
 
-Sanitized development publication for architectural review.
+Version-controlled application source for development, independent review, testing and authorized deployment.
 
-> **Status:** development/review branch only. This is not release acceptance, deployment evidence, or a replacement for any private runtime configuration.
+> **Status:** review candidate, not release acceptance. No production deployment is authorized by this repository or by passing its automated checks.
 
-## Scope
+## One implementation
 
-This tree contains the application source and deterministic tests, package manifests and lockfiles, and the vendored AMP adapter source needed to inspect or build the launcher integration. It intentionally excludes deployment credentials, provider configuration, durable user data, memory, runtime sessions, logs, generated dependencies, generated AMP output, private operational reports, and private Git history.
-
-The source snapshot was prepared from the revision workspace while preserving the current bytes of `src/app.mjs` and `src/index.mjs`. The public baseline was cloned at commit `1332d19314aa2efc68b1cab8d2e555a282b2de6c`; the review branch is `feat/architecture-revision`.
+Use this repository's exact Git revision for all application stages. Runtime configuration, credentials, canonical sessions, state, Markdown memory and service data live outside the checkout. Do not maintain a separate private application implementation or perform deployment-specific source substitutions. Old development workspaces are historical, not release sources.
 
 ## Layout
 
-- `src/` — application modules, browser assets, tests, and package manifests.
-- `src/vendor/amp/src/` — complete TypeScript source for the AMP MCP adapter.
-- `src/vendor/amp/package.json`, `package-lock.json`, `tsconfig.json`, `LICENSE` — AMP build/test metadata.
-- `ARCHITECTURE_STATUS.md` — current design status and review concerns, not acceptance evidence.
+- `src/`: application modules, browser assets, tests and locked dependency manifests.
+- `src/vendor/amp/src/`: vendored AMP TypeScript source and tests.
+- `config/`: sanitized examples and an **inactive** candidate n8n workflow template, not production configuration.
+- [Runtime configuration](docs/configuration.md).
+- [Source identity, evidence and release procedure](docs/source-verification.md).
+- `ARCHITECTURE_STATUS.md`: review status, limitations and outstanding gates.
 
 ## Development checks
 
-From `src/`:
+Use the supported Node runtime in `config/compose.yaml` or a compatible newer runtime. From the repository root:
 
 ```sh
-npm ci
-npm test
-node integration/native-faults.mjs
+npm ci --prefix src
+npm ci --prefix src/vendor/amp
+npm test --prefix src/vendor/amp
+npm run build --prefix src/vendor/amp
+npm test --prefix src
+node src/integration/native-faults.mjs
+cd src
 npx playwright install chromium
 node browser/acceptance.mjs
 ```
 
-The server expects deployment-local values when used beyond isolated tests. Do not commit tokens, provider credentials, private endpoints, durable state, or host-specific paths. Use a local temporary data root and explicit environment variables for development.
+`node_modules/` and AMP `dist/` are generated, not published application source. Keep the build output immutable and record its separate fingerprint. Tests use controlled fixtures unless specifically documented otherwise. Native Pi tests exercise the installed native runtime with a local provider and Tasks fixture, not live production integrations.
 
-For the vendored AMP adapter:
+Record source identity from any working directory:
 
 ```sh
-cd src/vendor/amp
-npm ci
-npm test
-npm run build
+node /path/to/checkout/src/source-verify.mjs --compact
 ```
 
-`dist/` and `node_modules/` are generated locally and are not part of this publication.
+Store the final manifest and test receipts outside the source tree. Publication and production identity must be verified separately; local test results are not proof of untested live behavior.
 
-## Review boundary
+## Release safety
 
-Passing deterministic tests demonstrates only the checked source seams. It does not establish production readiness, unattended operation, external-service availability, authorization correctness, deployment safety, or release acceptance. Reviewers should treat all network endpoints, authentication, persistence, and infrastructure integration as deployment-provided interfaces.
+Do not activate the workflow example or start a production replacement automatically. Final published-revision review, approved disposable AMP mutation/readback/rollback, candidate n8n awakening, production deployment/exact-source verification and live rollback remain explicit authorization gates.
 
 ## License
 

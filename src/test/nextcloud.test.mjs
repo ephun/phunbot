@@ -60,3 +60,21 @@ test('invalid config and cross-origin paths fail closed', async () => {
   const f = tlsFixture({ baseUrl: 'http://localhost' }); assert.throws(() => new Nextcloud(f.root), /HTTPS/);
   const good = tlsFixture(); const n = new Nextcloud(good.root); await assert.rejects(n.request('GET', 'https://other.invalid/steal'), /cross-origin/);
 });
+
+test('a CA chain does not become an implicit leaf pin', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'phunbot-nextcloud-chain-'));
+  const caKey = path.join(root, 'ca-key.pem'); const caCert = path.join(root, 'ca.pem');
+  const leafKey = path.join(root, 'leaf-key.pem'); const leafCsr = path.join(root, 'leaf.csr');
+  const leafCert = path.join(root, 'leaf.pem'); const ext = path.join(root, 'leaf.ext');
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=fixture CA', '-keyout', caKey, '-out', caCert], { stdio: 'ignore' });
+  execFileSync('openssl', ['req', '-new', '-newkey', 'rsa:2048', '-nodes', '-subj', '/CN=localhost', '-keyout', leafKey, '-out', leafCsr], { stdio: 'ignore' });
+  fs.writeFileSync(ext, 'subjectAltName=DNS:localhost\\n');
+  execFileSync('openssl', ['x509', '-req', '-in', leafCsr, '-CA', caCert, '-CAkey', caKey, '-CAcreateserial', '-days', '1', '-out', leafCert, '-extfile', ext], { stdio: 'ignore' });
+  fs.mkdirSync(path.join(root, 'config', 'secrets'), { recursive: true });
+  fs.copyFileSync(caCert, path.join(root, 'config', 'nextcloud-ca.pem'));
+  fs.writeFileSync(path.join(root, 'config', 'secrets', 'nextcloud.json'), JSON.stringify({ baseUrl: 'https://localhost', username: 'alice', password: 'fixture' }));
+  const server = https.createServer({ key: fs.readFileSync(leafKey), cert: fs.readFileSync(leafCert) }, (_req, res) => { res.writeHead(200); res.end('ok'); });
+  const port = await listen(server);
+  try { const n = new Nextcloud(root); n.baseUrl = new URL(`https://localhost:${port}`); await n.request('GET', '/health'); }
+  finally { await close(server); }
+});

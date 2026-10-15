@@ -30,7 +30,6 @@ const native = new Set([
   "read",
   "write",
   "edit",
-  "bash",
   "tool_search",
   "goal_plan",
   "memory_observe",
@@ -210,6 +209,18 @@ export class Permissions {
             "AMP management requires current explicit policy, independent owner authority and secure transport",
         };
     }
+    if (
+      name.startsWith("mcp__amp__") &&
+      configuration.ampInstances !== undefined &&
+      (!Array.isArray(configuration.ampInstances) ||
+        configuration.ampInstances.some(
+          (instance) => typeof instance !== "string" || !instance.trim(),
+        ))
+    )
+      return {
+        allowed: false,
+        reason: "AMP instance scope configuration is invalid; refusing the operation",
+      };
     if (
       op?.instanceId &&
       Array.isArray(configuration.ampInstances) &&

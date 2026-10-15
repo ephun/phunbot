@@ -1,4 +1,4 @@
-import { sourceFingerprint } from "./source-fingerprint.mjs";
+import { sourceFingerprint, sourceDrift } from "./source-fingerprint.mjs";
 import { recordReviewFailure } from "./routing.mjs";
 import http from "node:http";
 import fs from "node:fs";
@@ -135,7 +135,7 @@ export async function reconcileFailure(
   completeRun(row, epoch, decision.reason);
   return decision;
 }
-const startupSource = sourceFingerprint(new URL(".", import.meta.url).pathname);
+const startupSource = sourceFingerprint(here);
 const startupAppSha256 = crypto
   .createHash("sha256")
   .update(fs.readFileSync(new URL(import.meta.url)))
@@ -1206,15 +1206,32 @@ export async function start({
   const server = http.createServer(async (req, res) => {
     try {
       const u = new URL(req.url, "http://localhost");
-      if (u.pathname === "/health")
+      if (u.pathname === "/health") {
+        let identity;
+        try {
+          const { current, drifted } = sourceDrift(startupSource, here);
+          identity = {
+            ok: !drifted, sourceVerification: "available", sourceDrifted: drifted,
+            currentSourceSha256: current.sha256,
+            currentGitRevision: current.gitRevision, currentGitDirty: current.gitDirty,
+            currentAmpRuntimeSha256: current.ampRuntimeSha256,
+            ampLaunchPath: current.ampLaunchPath,
+            ampLaunchCorrespondence: current.ampLaunchCorrespondence,
+          };
+        } catch {
+          identity = { ok: false, sourceVerification: "unavailable", sourceDrifted: null };
+        }
         return json(res, 200, {
-          ok: true,
-          name: "phunbot",
-          runtime: "Pi",
-          startupAppSha256,
+          name: "phunbot", runtime: "Pi", startupAppSha256,
           startupSourceSha256: startupSource.sha256,
           startupSourceFiles: startupSource.files,
+          startupGitRevision: startupSource.gitRevision,
+          startupGitDirty: startupSource.gitDirty,
+          gitApplicability: startupSource.gitApplicability,
+          startupAmpRuntimeSha256: startupSource.ampRuntimeSha256,
+          ...identity,
         });
+      }
       const asset = publicAssets.get(u.pathname);
       if (asset && ["GET", "HEAD"].includes(req.method)) {
         res.writeHead(200, {

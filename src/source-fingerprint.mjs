@@ -3,163 +3,108 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
 
-const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
-const manifestHash = (files) => sha256(JSON.stringify(files));
+const hash = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
+const sorted = (files) => Object.fromEntries(Object.entries(files).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
+const digest = (files) => hash(JSON.stringify(sorted(files)));
+const manifests = ["package.json", "package-lock.json", "tsconfig.json", "tsconfig.build.json"];
+const topFile = (name) => /\.(?:mjs|js|css|html)$/.test(name) || manifests.slice(0, 2).includes(name);
+const allowed = (name) => !name.includes("/") ? topFile(name) :
+  /^(?:test|integration|browser)\/[^/]+\.mjs$/.test(name) ||
+  /^vendor\/amp\/src\/(?!.*(?:^|\/)node_modules\/).*\.ts$/.test(name) ||
+  manifests.some((m) => name === `vendor/amp/${m}`);
 
-function sourceFile(name) {
-  return /\.(?:mjs|js|css|html)$/.test(name) ||
-    ["package.json", "package-lock.json"].includes(name);
-}
-function ampSourceFile(name) {
-  return name.endsWith(".ts") && !name.endsWith(".test.ts") ||
-    ["package.json", "package-lock.json", "tsconfig.json", "tsconfig.build.json"].includes(name);
-}
-function ampRuntimeFile(name) {
-  return name.endsWith(".js") && !name.endsWith(".test.js");
-}
-
-/** Verify directory is real, not a symlink target. */
-function assertDirectory(directory, label = "Release source") {
-  const stat = fs.lstatSync(directory);
-  if (stat.isSymbolicLink()) throw Error(`${label} symlink is not authorized`);
-  if (!stat.isDirectory()) throw Error(`${label} directory is required`);
-}
-
-/** Walk a subdirectory tree, accepting files by predicate, rejecting symlinks. */
-function collect(directory, relative, acceptFn, label) {
-  const current = path.join(directory, relative);
-  assertDirectory(current, label);
-  const files = {};
-  function visit(rel) {
-    const dir = path.join(directory, rel);
-    assertDirectory(dir, label); // lstat check on every directory entry
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })
-      .sort((a, b) => a.name.localeCompare(b.name))) {
-      const child = rel ? `${rel}/${entry.name}` : entry.name;
-      const targetPath = path.join(directory, child);
-      // lstat on each non-root entry to detect symlinks (Dirent.isdir ignores them)
-      if (!rel && entry.isFile()) continue; // handled above for root scan
-      const ls = fs.lstatSync(targetPath);
-      if (ls.isSymbolicLink()) throw Error(`${label} symlink is not authorized: ${child}`);
-      if (ls.isDirectory()) visit(child);
-      else if (entry.isFile() && acceptFn(entry.name, child)) {
-        files[child] = sha256(fs.readFileSync(targetPath));
-      }
-    }
+// Check every path component before accessing it. No realpath/following links.
+function safeStat(target) {
+  const absolute = path.resolve(target);
+  const parts = absolute.slice(path.parse(absolute).root.length).split(path.sep);
+  let current = path.parse(absolute).root, stat;
+  for (const part of parts) {
+    current = path.join(current, part);
+    try { stat = fs.lstatSync(current); }
+    catch (error) { if (error.code === "ENOENT") return null; throw error; }
+    if (stat.isSymbolicLink()) throw Error("Source symlink is not authorized");
   }
-  visit(relative);
-  return files;
+  return stat;
 }
-
-/** Git revision and dirty state scoped to tracked source only. */
-function gitInfo(directory, files) {
-  const run = (args, cwd) =>
-    spawnSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-
-  const top = run(["rev-parse", "--show-toplevel"], directory);
-  if (top.status !== 0) return { gitRevision: null, gitDirty: null };
-  const repo = top.stdout.trim();
-
-  const revision = run(["rev-parse", "HEAD"], repo);
-  if (revision.status !== 0) return { gitRevision: null, gitDirty: null };
-  const revId = revision.stdout.trim();
-
-  // Determine source paths under the project root (stripped of "vendor" prefix)
-  const relativeDir = path.relative(repo, directory).split(path.sep).join("/");
-  const knownRootFiles = new Set(Object.keys(files));
-
-  const isSource = (name) => {
-    const stripped = name.replace(/^src\//, "");
-    if (!stripped || !stripped.includes("/")) {
-      // bare filename like app.mjs
-      return knownRootFiles.has(stripped);
+function readHash(target) {
+  const stat = safeStat(target);
+  if (!stat?.isFile()) throw Error("Source must be a regular file");
+  const fd = fs.openSync(target, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try { return hash(fs.readFileSync(fd)); }
+  finally { fs.closeSync(fd); }
+}
+function walk(root, relative, accept, files, recursive = false) {
+  const target = path.join(root, relative);
+  const stat = safeStat(target);
+  if (!stat) return;
+  if (!stat.isDirectory()) throw Error("Source directory is required");
+  for (const name of fs.readdirSync(target).sort()) {
+    // Only inspect source candidates; never descend into runtime/dependency trees.
+    const child = relative ? `${relative}/${name}` : name;
+    if (["node_modules", "config", "vault", "runtime", "state", "cache", ".git"].includes(name)) continue;
+    if (recursive) {
+      const entry = safeStat(path.join(root, child));
+      if (entry?.isDirectory()) { walk(root, child, accept, files, true); continue; }
     }
-    // vendor/amp path check — use the stripped version so "src/vendor/amp/src/index.ts" matches
-    return stripped.startsWith("vendor/amp/src/") || stripped.startsWith("vendor/amp/dist/");
+    if (accept(child)) files[child] = readHash(path.join(root, child));
+  }
+}
+function gitInfo(root, files) {
+  const run = (args) => spawnSync("git", ["--no-optional-locks", "-C", root, ...args], {
+    encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 10000,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  const absent = { gitRevision: null, gitDirty: null, gitApplicability: "unavailable", untrackedSourcePaths: [], trackedSourcePaths: [] };
+  const revision = run(["rev-parse", "--verify", "HEAD"]);
+  if (revision.status !== 0 || !/^[a-f0-9]{40,64}\n?$/.test(revision.stdout)) return absent;
+  const prefix = run(["rev-parse", "--show-prefix"]);
+  const tree = run(["ls-tree", "--full-name", "-r", "--name-only", "-z", "HEAD", "--", "."]);
+  if (prefix.status !== 0 || tree.status !== 0) return { ...absent, gitRevision: revision.stdout.trim() };
+  // ls-tree paths are repository-relative. Filter metadata before any content reads.
+  const tracked = tree.stdout.split("\0").filter(Boolean)
+    .map((name) => name.startsWith(prefix.stdout.trim()) ? name.slice(prefix.stdout.trim().length) : "")
+    .filter(allowed).sort();
+  const current = Object.keys(files);
+  const untracked = current.filter((name) => !tracked.includes(name)).sort();
+  const candidates = [...new Set([...tracked, ...current])].sort();
+  // Exact literal source paths only: Git never stats/reads runtime configuration.
+  const diff = candidates.length ? run(["--literal-pathspecs", "diff", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--", ...candidates]) : { status: 0 };
+  return {
+    gitRevision: revision.stdout.trim(),
+    gitDirty: diff.status === 0 || diff.status === 1 ? diff.status === 1 || untracked.length > 0 : null,
+    gitApplicability: "application-source-only",
+    trackedSourcePaths: tracked, untrackedSourcePaths: untracked,
   };
-
-  // --untracked-files=no: only show changes to tracked files (avoids untracked noise)
-  const statusOutput = run(
-    ["status", "--porcelain=v1", "--untracked-files=no", "--", relativeDir ? "." : ""],
-    repo
-  );
-  let dirty = false;
-  if (statusOutput.status === 0 && statusOutput.stdout.trim()) {
-    for (const line of statusOutput.stdout.split("\n")) {
-      if (!line) continue;
-      const item = line.slice(3); // remove "MM " / "M " prefix
-      const names = item.includes(" -> ") ? item.split(" -> ") : [item];
-      if (names.some((name) => isSource(name))) { dirty = true; break; }
-    }
-  }
-
-  return { gitRevision: revId, gitDirty: dirty };
 }
 
-/**
- * Fingerprint application source only — never runtime/storage/config/auth/vault.
- *
- * Returns a deterministic snapshot:
- *   - sha256 / files       : all tracked source (app + AMP source + AMP built dist)
- *   - ampSourceSha256      : separate invariant for just the TypeScript sources
- *   - ampRuntimeSha256     : separate invariant for the compiled adapter
- *   - gitRevision / gitDirty: repo identity scoped to application source
- *   - ampLaunchCorrespondence: "not-evaluated" — set later when launcher path is known
- */
+/** Application source and built AMP bytes are intentionally separate identities. */
 export function sourceFingerprint(directory) {
   const root = path.resolve(directory);
-  assertDirectory(root);
-
-  // Top-level project files (same as original behavior, but with symlink guard)
-  const files = {};
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })
-    .sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!sourceFile(entry.name)) continue;
-    const targetPath = path.join(root, entry.name);
-    const ls = fs.lstatSync(targetPath);
-    if (ls.isSymbolicLink() || !entry.isFile())
-      throw Error(`Release source symlink is not authorized: ${entry.name}`);
-    files[entry.name] = sha256(fs.readFileSync(targetPath));
+  if (!safeStat(root)?.isDirectory()) throw Error("Source directory is required");
+  const source = {};
+  walk(root, "", allowed, source);
+  for (const dir of ["test", "browser", "integration"]) walk(root, dir, allowed, source);
+  walk(root, "vendor/amp/src", allowed, source, true);
+  for (const name of manifests) {
+    const relative = `vendor/amp/${name}`;
+    if (safeStat(path.join(root, relative))) source[relative] = readHash(path.join(root, relative));
   }
-
-  // AMP vendor: reject symlinks at every level of vendor/amp so a sibling-directory symlink
-  // (e.g. vendor/amp/fake-src → vendor/amp/src) is caught even if collect only scans src/.
-  const vendorRoot = path.join(root, "vendor/amp");
-  const hasVendorAmp = fs.existsSync(vendorRoot);
-  if (hasVendorAmp) {
-    for (const entry of fs.readdirSync(vendorRoot, { withFileTypes: true })
-      .sort((a, b) => a.name.localeCompare(b.name))) {
-      const lp = path.join(vendorRoot, entry.name);
-      if (entry.isSymbolicLink())
-        throw Error(`Release source symlink is not authorized: vendor/amp/${entry.name}`);
-    }
-  }
-
-  // AMP TypeScript sources (separate fingerprint)
-  const ampSourceFiles = hasVendorAmp && fs.existsSync(path.join(root, "vendor/amp/src"))
-    ? collect(root, "vendor/amp/src", ampSourceFile, "AMP source") : {};
-
-  // AMP built adapter (separate fingerprint; this is what launcher actually runs)
-  const ampRuntimeFiles = hasVendorAmp && fs.existsSync(path.join(root, "vendor/amp/dist"))
-    ? collect(root, "vendor/amp/dist", ampRuntimeFile, "AMP runtime adapter") : {};
-
-  // Combined manifest hash
-  const all = { ...files, ...ampSourceFiles, ...ampRuntimeFiles };
-
+  const files = sorted(source);
+  const ampSourceFiles = sorted(Object.fromEntries(Object.entries(files).filter(([name]) => name.startsWith("vendor/amp/"))));
+  const built = {};
+  walk(root, "vendor/amp/dist", (name) => name.endsWith(".js") && !name.endsWith(".test.js"), built, true);
+  const ampRuntimeFiles = sorted(built);
   return {
-    sha256: manifestHash(all),
-    files,
-    ampSourceSha256: manifestHash(ampSourceFiles),
-    ampSourceFiles,
-    ampRuntimeSha256: manifestHash(ampRuntimeFiles),
-    ampRuntimeFiles,
-    ampLaunchCorrespondence: "not-evaluated",
-    ...gitInfo(root, all),
+    schemaVersion: 1, sha256: digest(files), files,
+    ...gitInfo(root, files),
+    ampSourceSha256: digest(ampSourceFiles), ampSourceFiles,
+    ampRuntimeSha256: Object.keys(built).length ? digest(ampRuntimeFiles) : null, ampRuntimeFiles,
+    ampLaunchPath: "vendor/amp/dist/index.js",
+    ampLaunchCorrespondence: built["vendor/amp/dist/index.js"] ? "on-disk-only" : "missing",
   };
 }
 
-/** Compare a startup snapshot against current disk to detect drift. */
 export function sourceDrift(startup, directory) {
   const current = sourceFingerprint(directory);
-  return { current, drifted: current.sha256 !== startup.sha256 };
+  return { current, drifted: current.sha256 !== startup.sha256 || current.ampRuntimeSha256 !== startup.ampRuntimeSha256 };
 }

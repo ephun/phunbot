@@ -38,6 +38,17 @@ it('uploads fail closed when AMP_MCP_UPLOAD_ROOTS is unset',async()=>{
  await expect(f.handler({instanceId:'disposable',localPath:f.localPath,remotePath:'validation/artifact.txt',expectedSha256:createHash('sha256').update('approved bytes').digest('hex')})).rejects.toThrow(/outside approved roots|none configured/i);
  expect(f.write).not.toHaveBeenCalled();
 });
+it('empty upload roots never authorize the current working directory',async()=>{
+ const f=fixture();
+ const cwd=vi.spyOn(process,'cwd').mockReturnValue(path.dirname(f.localPath));
+ try {
+  for(const roots of ['', ' , , ']) {
+   vi.stubEnv('AMP_MCP_UPLOAD_ROOTS', roots);
+   await expect(f.handler({instanceId:'disposable',localPath:f.localPath,remotePath:'validation/artifact.txt',expectedSha256:createHash('sha256').update('approved bytes').digest('hex')})).rejects.toThrow(/outside approved roots|none configured/i);
+  }
+  expect(f.write).not.toHaveBeenCalled();
+ } finally { cwd.mockRestore(); }
+});
 it('direct file handlers reject traversal without relying on the dispatcher',async()=>{
  const f=fixture();
  for(const name of ['amp_rename_file','amp_create_directory','amp_create_archive','amp_copy_file','amp_trash_file']) {

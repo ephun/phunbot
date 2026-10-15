@@ -1,9 +1,8 @@
+# Example only. Do not start without release authorization and populated runtime paths.
 services:
   phunbot:
     image: node:22.19.0-bookworm-slim
-    container_name: phunbot
-    hostname: phunbot
-    user: '10000:10000'
+    user: '${PHUNBOT_UID:-10000}:${PHUNBOT_GID:-10000}'
     command: [node, /app/server.mjs]
     working_dir: /app
     environment:
@@ -13,17 +12,13 @@ services:
       HOST: 0.0.0.0
       PORT: '8504'
     volumes:
-      - /srv/phunbot:/data
-      - /srv/phunbot/src:/app:ro
+      - '${PHUNBOT_RUNTIME_DIR:?set private runtime directory}:/data'
+      - '${PHUNBOT_SOURCE_DIR:?set exact reviewed checkout src directory}:/app:ro'
     ports:
-      - '127.0.0.1:8504:8504'
+      - '${PHUNBOT_BIND_ADDRESS:-127.0.0.1}:${PHUNBOT_PORT:-8504}:8504'
     restart: unless-stopped
     mem_limit: 2g
     cpus: 2.0
     pids_limit: 256
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    labels:
-      net.unraid.docker.managed: compose
-      net.unraid.docker.webui: http://phunraid:8504
-      net.unraid.docker.icon: https://pi.dev/favicon.svg

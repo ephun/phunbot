@@ -88,9 +88,18 @@ server.setRequestHandler(CallToolRequestSchema, async (r, extra) => {
         const s = JSON.parse(
           fs.readFileSync(root + "/config/secrets/n8n.json"),
         );
+        let base;
+        try { base = new URL(s.baseUrl); } catch { throw Error("Invalid n8n endpoint"); }
+        const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname);
+        if ((base.protocol !== "https:" && !(base.protocol === "http:" && loopback)) ||
+            base.username || base.password || base.search || base.hash)
+          throw Error("Invalid n8n endpoint");
+        const endpoint = new URL(base.href.replace(/\/$/, "") + "/api/v1/workflows?limit=100");
+        if (endpoint.origin !== base.origin) throw Error("Invalid n8n endpoint");
         const response = await fetch(
-          s.baseUrl + "/api/v1/workflows?limit=100",
+          endpoint,
           {
+            redirect: "error",
             headers: { "X-N8N-API-KEY": s.apiKey },
             signal: signal
               ? AbortSignal.any([signal, AbortSignal.timeout(20000)])

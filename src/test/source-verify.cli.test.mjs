@@ -1,0 +1,24 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+const script = fileURLToPath(new URL("../source-verify.mjs", import.meta.url));
+test("CLI emits deterministic relative manifest, rejects invalid arguments and missing paths", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "source-cli-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(root, "app.mjs"), "app");
+  const run = (...args) => spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
+  const first = run(root, "--compact");
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(run(root, "--compact").stdout, first.stdout);
+  const manifest = JSON.parse(first.stdout);
+  assert.deepEqual(Object.keys(manifest.files), ["app.mjs"]);
+  assert.match(manifest.files["app.mjs"], /^[a-f0-9]{64}$/);
+  assert.equal(manifest.gitApplicability, "unavailable");
+  assert.notEqual(run(path.join(root, "missing")).status, 0);
+  assert.notEqual(run("--unknown").status, 0);
+  assert.notEqual(run(root, root).status, 0);
+});
