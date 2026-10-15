@@ -30,9 +30,13 @@ it('uploads the approved immutable byte buffer and reports its SHA256 plus fresh
  expect(JSON.parse(result.content[0].text)).toMatchObject({uploaded:true,sha256,effectVerified:true});
  expect(f.write).toHaveBeenCalledOnce();
 });
-
 it('empty-file uploads must fail before making a remote claim',async()=>{
  const f=fixture('');await expect(f.handler({instanceId:'disposable',localPath:f.localPath,remotePath:'validation/empty.txt',expectedSha256:createHash('sha256').update('').digest('hex')})).rejects.toThrow(/empty|zero/i);expect(f.write).not.toHaveBeenCalled();
+});
+it('uploads fail closed when AMP_MCP_UPLOAD_ROOTS is unset',async()=>{
+ const f=fixture(); vi.unstubAllEnvs();
+ await expect(f.handler({instanceId:'disposable',localPath:f.localPath,remotePath:'validation/artifact.txt',expectedSha256:createHash('sha256').update('approved bytes').digest('hex')})).rejects.toThrow(/outside approved roots|none configured/i);
+ expect(f.write).not.toHaveBeenCalled();
 });
 it('direct file handlers reject traversal without relying on the dispatcher',async()=>{
  const f=fixture();

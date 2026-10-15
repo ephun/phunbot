@@ -1,0 +1,6 @@
+{
+  "baseUrl": "https://nextcloud.example.invalid",
+  "username": "replace-with-runtime-username",
+  "password": "replace-with-runtime-password",
+  "calendarName": "phunbot-goals"
+}

@@ -5,6 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { OwnerAuthority } from "../owner-authority.mjs";
+// Exercise a copied launcher and adapter in an isolated application tree, never
+// an alternate implementation under runtime cache storage.
+function launcher(root) {
+  const source = path.join(root, "application");
+  fs.mkdirSync(source, { recursive: true });
+  for (const name of ["mcp-launch.mjs", "owner-authority.mjs"]) {
+    fs.copyFileSync(new URL("../" + name, import.meta.url), path.join(source, name));
+  }
+  return path.join(source, "mcp-launch.mjs");
+}
 test("central owner authority enables write registration without an adapter-level veto", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "launch-authorized-"));
   fs.mkdirSync(root + "/config/secrets", { recursive: true });
@@ -21,14 +31,14 @@ test("central owner authority enables write registration without an adapter-leve
     JSON.stringify({ ampManagement: true }),
   );
   new OwnerAuthority(root).initialize();
-  fs.mkdirSync(root + "/cache/mcp/amp/dist", { recursive: true });
+  fs.mkdirSync(root + "/application/vendor/amp/dist", { recursive: true });
   fs.writeFileSync(
-    root + "/cache/mcp/amp/dist/index.js",
+    root + "/application/vendor/amp/dist/index.js",
     "console.log(JSON.stringify({allowWrites:process.env.AMP_ALLOW_WRITES}));",
   );
   const r = spawnSync(
     process.execPath,
-    [new URL("../mcp-launch.mjs", import.meta.url).pathname, "amp"],
+    [launcher(root), "amp"],
     { env: { ...process.env, PHUNBOT_ROOT: root }, encoding: "utf8" },
   );
   assert.equal(r.status, 0, r.stderr);
@@ -46,14 +56,14 @@ test("owner key alone cannot enable privileged registration over plaintext LAN t
     JSON.stringify({ ampManagement: true }),
   );
   new OwnerAuthority(root).initialize();
-  fs.mkdirSync(root + "/cache/mcp/amp/dist", { recursive: true });
+  fs.mkdirSync(root + "/application/vendor/amp/dist", { recursive: true });
   fs.writeFileSync(
-    root + "/cache/mcp/amp/dist/index.js",
+    root + "/application/vendor/amp/dist/index.js",
     "console.log(JSON.stringify({allowWrites:process.env.AMP_ALLOW_WRITES}));",
   );
   const r = spawnSync(
     process.execPath,
-    [new URL("../mcp-launch.mjs", import.meta.url).pathname, "amp"],
+    [launcher(root), "amp"],
     { env: { ...process.env, PHUNBOT_ROOT: root }, encoding: "utf8" },
   );
   assert.equal(r.status, 0, r.stderr);
@@ -67,14 +77,14 @@ test("secure transport and an owner key do not substitute for explicit AMP manag
     JSON.stringify({ amp: { env: { AMP_URL: "https://amp.example.test" } } }),
   );
   new OwnerAuthority(root).initialize();
-  fs.mkdirSync(root + "/cache/mcp/amp/dist", { recursive: true });
+  fs.mkdirSync(root + "/application/vendor/amp/dist", { recursive: true });
   fs.writeFileSync(
-    root + "/cache/mcp/amp/dist/index.js",
+    root + "/application/vendor/amp/dist/index.js",
     "console.log(JSON.stringify({allowWrites:process.env.AMP_ALLOW_WRITES}));",
   );
   const r = spawnSync(
     process.execPath,
-    [new URL("../mcp-launch.mjs", import.meta.url).pathname, "amp"],
+    [launcher(root), "amp"],
     { env: { ...process.env, PHUNBOT_ROOT: root }, encoding: "utf8" },
   );
   assert.equal(r.status, 0, r.stderr);
@@ -87,14 +97,14 @@ test("AMP launcher starts read-only unless an operator explicitly configures wri
     root + "/config/secrets/mcp.json",
     JSON.stringify({ amp: { env: {} } }),
   );
-  fs.mkdirSync(root + "/cache/mcp/amp/dist", { recursive: true });
+  fs.mkdirSync(root + "/application/vendor/amp/dist", { recursive: true });
   fs.writeFileSync(
-    root + "/cache/mcp/amp/dist/index.js",
+    root + "/application/vendor/amp/dist/index.js",
     "console.log(JSON.stringify({allowWrites:process.env.AMP_ALLOW_WRITES}));",
   );
   const r = spawnSync(
     process.execPath,
-    [new URL("../mcp-launch.mjs", import.meta.url).pathname, "amp"],
+    [launcher(root), "amp"],
     { env: { ...process.env, PHUNBOT_ROOT: root }, encoding: "utf8" },
   );
   assert.equal(r.status, 0, r.stderr);
@@ -115,7 +125,7 @@ test("Unraid launcher disables FastMCP update checks with the installed Settings
   );
   const result = spawnSync(
     process.execPath,
-    [new URL("../mcp-launch.mjs", import.meta.url).pathname, "unraid"],
+    [launcher(root), "unraid"],
     { env: { ...process.env, PHUNBOT_ROOT: root }, encoding: "utf8" },
   );
   assert.equal(result.status, 0, result.stderr);

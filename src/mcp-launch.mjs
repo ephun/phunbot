@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { OwnerAuthority, secureAmpTransport } from "./owner-authority.mjs";
 const root = process.env.PHUNBOT_ROOT || "/data";
@@ -9,7 +10,9 @@ const env = { ...process.env, ...settings[server].env };
 let executable, args;
 if (server === "amp") {
   executable = process.execPath;
-  args = [root + "/cache/mcp/amp/dist/index.js"];
+  // The reviewed adapter build belongs to the application checkout, not a
+  // separately mutable runtime-cache implementation.
+  args = [fileURLToPath(new URL("./vendor/amp/dist/index.js", import.meta.url))];
   env.MCP_TRANSPORT = "stdio";
   env.LOG_LEVEL = "error";
   const policyFile = root + "/config/permissions.json";
