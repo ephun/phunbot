@@ -24,6 +24,7 @@ From `src/`:
 ```sh
 npm ci
 npm test
+node integration/native-faults.mjs
 npx playwright install chromium
 node browser/acceptance.mjs
 ```
