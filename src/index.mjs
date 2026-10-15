@@ -132,6 +132,7 @@ export class Index {
         } catch {}
         if (scored.length >= 7) break;
       }
+    this.memory.recordRetrieval("semantic", scored);
     return scored;
   }
   candidates() {

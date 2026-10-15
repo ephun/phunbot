@@ -73,13 +73,17 @@ server.setRequestHandler(CallToolRequestSchema, async (r, extra) => {
     let result;
     switch (r.params.name) {
       case "memory_search":
-        result = memory.search(a.query);
+        result = memory.withContext({phase:"mcp"}, () => {
+          const notes=memory.search(a.query);memory.recordContextSupply(notes,notes.map(n=>n.text).join("\n\n"));return notes;
+        });
         break;
       case "memory_read":
-        result = { id: a.id, markdown: memory.get(a.id) };
+        result = memory.withContext({phase:"mcp"}, () => {
+          const text=memory.get(a.id);memory.recordContextSupply([{id:a.id,text}],text);return {id:a.id,markdown:text};
+        });
         break;
       case "memory_link":
-        result = memory.link(a.a, a.b, a.reason);
+        result = memory.withContext({phase:"mcp"}, () => memory.link(a.a, a.b, a.reason));
         break;
       case "nextcloud_goals":
         result = await new Nextcloud(root).list(signal);

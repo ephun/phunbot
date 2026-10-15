@@ -50,3 +50,9 @@ Do not activate the workflow example or start a production replacement automatic
 ## License
 
 The AMP adapter retains its upstream `LICENSE`. Application licensing and publication policy should be confirmed by the repository owner before merge or release.
+
+## Observational memory telemetry
+
+See [native memory telemetry](docs/memory-telemetry.md) for the private runtime
+journal schema, captured boundaries, lineage, limitations and operator reconciliation.
+Telemetry does not change memory retrieval or maintenance decisions.

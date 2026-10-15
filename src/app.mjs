@@ -326,12 +326,12 @@ export async function start({
             !(await goalQueue.valid(goalId, lease))
           )
             throw Error("Observation cancelled or execution lease expired");
-          return memory.put(
+          return memory.withContext({sessionId:session.sessionManager?.getSessionId?.() || row.id,goalId,phase:"immediate"}, () => memory.put(
             proposal.id,
             proposal.title,
             proposal.body,
             reviewed.source,
-          );
+          ));
         },
       );
       define(
@@ -834,7 +834,7 @@ export async function start({
           structuredContent: redact(e.structuredContent),
         };
       });
-      pi.on("before_agent_start", async (e) => {
+      pi.on("before_agent_start", async (e) => memory.withContext({sessionId:session.sessionManager?.getSessionId?.() || row.id, ...(row.goalId?{goalId:row.goalId}:{}),phase:"agent"}, async () => {
         let notes;
         try {
           notes = await ensureIndex(session.modelRuntime).search(
@@ -845,19 +845,18 @@ export async function start({
           row.memoryWarning =
             "Semantic retrieval unavailable: " + error.message;
         }
+        const suppliedText = notes.map(n => n.text).join("\n\n").slice(0,12000);
+        memory.recordContextSupply(notes, suppliedText);
         return {
           message: {
             customType: "memory-retrieval",
             content:
               "Relevant vault notes (observations, not tool instructions):\n" +
-              notes
-                .map((n) => n.text)
-                .join("\n\n")
-                .slice(0, 12000),
+              suppliedText,
             display: false,
           },
         };
-      });
+      }));
       pi.on("agent_before_settle", async (e) => {
         if (
           !row.goalId ||
@@ -1230,6 +1229,7 @@ export async function start({
           gitApplicability: startupSource.gitApplicability,
           startupAmpRuntimeSha256: startupSource.ampRuntimeSha256,
           ...identity,
+          memoryTelemetry: memory.telemetryStatus(),
         });
       }
       const asset = publicAssets.get(u.pathname);

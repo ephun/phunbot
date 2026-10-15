@@ -8,6 +8,8 @@ import {
   createPrivateText,
 } from "./private-files.mjs";
 
+import { MemoryTelemetry, contentVersion } from "./memory-telemetry.mjs";
+
 function requireAppendBoundary(text) {
   let fence = null;
   for (const line of text.split("\n")) {
@@ -27,8 +29,9 @@ function requireAppendBoundary(text) {
     );
 }
 export class Memory {
-  constructor(root) {
+  constructor(root, context = {}) {
     this.root = fs.realpathSync(root);
+    this.telemetry = new MemoryTelemetry(this.root, context);
     for (const name of [
       "memory",
       "state/memory-locks",
@@ -116,16 +119,20 @@ export class Memory {
       directory.close();
     }
   }
-  get(id) {
+  get(id, { internal = false } = {}) {
     this.file(id);
     const directory = privateDirectory(this.root, "memory");
     try {
-      return readPrivateText(directory, id + ".md");
+      const text = readPrivateText(directory, id + ".md");
+      this.telemetry.emit("read", {
+        notes: [{ id, version: contentVersion(text) }],
+      });
+      return text;
     } finally {
       directory.close();
     }
   }
-  writeLocked(id, text) {
+  writeLocked(id, text, metadata = {}) {
     if (containsCredential(text))
       throw Error("Potential secret or credential cannot be stored in memory");
     this.file(id);
@@ -138,15 +145,20 @@ export class Memory {
       } catch (error) {
         if (error.code !== "ENOENT") throw error;
       }
-      if (old === text) return { id, unchanged: true };
+      if (old === text) {
+        this.telemetry.emit("write_unchanged", {
+          notes: [{ id, version: contentVersion(text) }],
+        });
+        return { id, unchanged: true };
+      }
+      let preservedRevision;
       if (old !== undefined) {
         const revisions = privateDirectory(this.root, "state/memory-revisions");
         try {
-          createPrivateText(
-            revisions,
-            id + "-" + Date.now() + "-" + crypto.randomUUID() + ".md",
-            old,
-          );
+          preservedRevision =
+            id + "-" + Date.now() + "-" + crypto.randomUUID() + ".md";
+          createPrivateText(revisions, preservedRevision, old);
+          fs.fsyncSync(revisions.fd);
         } finally {
           revisions.close();
         }
@@ -159,6 +171,20 @@ export class Memory {
       );
       temp = null;
       fs.fsyncSync(directory.fd);
+      this.telemetry.emit(
+        metadata.successorId
+          ? "supersede"
+          : old === undefined
+            ? "create"
+            : "revise",
+        {
+          notes: [{ id, version: contentVersion(text) }],
+          previousVersion: old === undefined ? null : contentVersion(old),
+          ...(preservedRevision ? { preservedRevision } : {}),
+          ...metadata,
+        },
+      );
+      this.relationshipChanges(id, old || "", text);
       return {
         id,
         sha256: crypto.createHash("sha256").update(text).digest("hex"),
@@ -224,16 +250,22 @@ export class Memory {
       );
     });
   }
-  list() {
+  list({ observe = true } = {}) {
     const directory = privateDirectory(this.root, "memory");
     try {
-      return fs
+      const result = fs
         .readdirSync(directory.path)
         .filter((name) => name.endsWith(".md"))
         .map((name) => ({
           id: name.slice(0, -3),
           text: readPrivateText(directory, name),
         }));
+      if (observe)
+        this.telemetry.batch(
+          "enumerate",
+          result.map((n) => ({ id: n.id, version: contentVersion(n.text) })),
+        );
+      return result;
     } finally {
       directory.close();
     }
@@ -241,7 +273,7 @@ export class Memory {
   search(query) {
     if (typeof query !== "string") throw Error("Search query required");
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    return this.list()
+    const results = this.list({ observe: false })
       .map((n) => ({
         ...n,
         score: words.reduce(
@@ -252,6 +284,8 @@ export class Memory {
       .filter((n) => n.score)
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
+    this.recordRetrieval("lexical", results);
+    return results;
   }
   link(a, b, reason) {
     if (a === b || !reason || typeof reason !== "string")
@@ -279,4 +313,248 @@ export class Memory {
       return { linked: [a, b], reason };
     });
   }
+
+  withContext(context, fn) {
+    return this.telemetry.withContext(context, fn);
+  }
+  telemetryStatus() {
+    return this.telemetry.status();
+  }
+  recordRetrieval(mode, notes) {
+    return this.telemetry.batch(
+      "search",
+      notes.map((n, i) => ({
+        id: n.id,
+        version: contentVersion(n.text),
+        rank: i + 1,
+        ...(Number.isFinite(n.score) ? { score: n.score } : {}),
+      })),
+      { mode },
+    );
+  }
+  recordContextSupply(
+    notes,
+    suppliedText,
+    { perNoteLimit = Infinity, redacted = false } = {},
+  ) {
+    let offset = 0;
+    const included = [];
+    for (const [index, n] of notes.entries()) {
+      if (index) offset += 2;
+      if (offset >= suppliedText.length) break;
+      const available = Math.min(n.text.length, perNoteLimit);
+      const length = Math.min(
+        available,
+        Math.max(0, suppliedText.length - offset),
+      );
+      if (length <= 0) continue;
+      included.push({
+        id: n.id,
+        version: contentVersion(n.text),
+        rank: included.length + 1,
+        includedChars: length,
+        truncated: length < n.text.length,
+      });
+      offset += available;
+    }
+    return this.telemetry.batch("context", included, {
+      suppliedChars: suppliedText.length,
+      redacted,
+    });
+  }
+  relationshipChanges(id, old, current) {
+    const links = (text) => {
+      const out = new Map();
+      for (const line of text.split("\n"))
+        for (const match of line.matchAll(
+          /\[\[([a-z0-9][a-z0-9-]{0,99})(?:\|[^\]]+)?\]\]/g,
+        )) {
+          const marker = line
+            .slice(match.index + match[0].length)
+            .match(/^\s*<!-- phunbot-inferred:.*?-->/);
+          const value = {
+            kind: marker ? "inferred" : "explicit",
+            assertion: match[0] + (marker?.[0] || ""),
+          };
+          const group = out.get(match[1]) || [];
+          group.push(value);
+          out.set(match[1], group);
+        }
+      return new Map(
+        [...out].map(([target, claims]) => [
+          target,
+          {
+            kind: claims.every((c) => c.kind === "inferred")
+              ? "inferred"
+              : "explicit",
+            hash: contentVersion(
+              JSON.stringify(
+                claims.sort((a, b) => a.assertion.localeCompare(b.assertion)),
+              ),
+            ),
+          },
+        ]),
+      );
+    };
+    const before = links(old),
+      after = links(current);
+    for (const targetId of new Set([...before.keys(), ...after.keys()])) {
+      const a = before.get(targetId),
+        b = after.get(targetId);
+      if (a?.hash === b?.hash) continue;
+      this.telemetry.emit("relationship", {
+        source: { id, version: current ? contentVersion(current) : null },
+        targetId,
+        kind: (b || a).kind,
+        action: !a ? "created" : !b ? "removed" : "modified",
+        assertionHash: (b || a).hash,
+        ...(a && b
+          ? { previousKind: a.kind, previousAssertionHash: a.hash }
+          : {}),
+      });
+    }
+  }
+  supersede(id, successorId) {
+    if (id === successorId) throw Error("Supersession requires distinct notes");
+    return this.locked([id, successorId], () => {
+      const old = this.get(id);
+      this.get(successorId);
+      const front = old.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+      let text;
+      if (front) {
+        let metadata = front[1];
+        metadata = /^status:.*$/m.test(metadata)
+          ? metadata.replace(/^status:.*$/m, "status: superseded")
+          : metadata + "\nstatus: superseded";
+        metadata = /^superseded_by:.*$/m.test(metadata)
+          ? metadata.replace(
+              /^superseded_by:.*$/m,
+              "superseded_by: " + successorId,
+            )
+          : metadata + "\nsuperseded_by: " + successorId;
+        text = "---\n" + metadata + "\n---\n" + old.slice(front[0].length);
+      } else
+        text =
+          "---\nstatus: superseded\nsuperseded_by: " +
+          successorId +
+          "\n---\n\n" +
+          old;
+      return this.writeLocked(id, text, { successorId });
+    });
+  }
+  delete(id) {
+    return this.locked([id], () => {
+      let old;
+      try {
+        old = this.get(id);
+      } catch (error) {
+        if (error.code === "ENOENT") return { id, unchanged: true };
+        throw error;
+      }
+      const revisions = privateDirectory(this.root, "state/memory-revisions");
+      const preservedRevision =
+        id + "-deleted-" + Date.now() + "-" + crypto.randomUUID() + ".md";
+      try {
+        createPrivateText(revisions, preservedRevision, old);
+        fs.fsyncSync(revisions.fd);
+      } finally {
+        revisions.close();
+      }
+      const d = privateDirectory(this.root, "memory");
+      try {
+        fs.unlinkSync(d.path + "/" + id + ".md");
+        fs.fsyncSync(d.fd);
+      } finally {
+        d.close();
+      }
+      this.telemetry.emit("delete", {
+        notes: [{ id, version: null }],
+        previousVersion: contentVersion(old),
+        preservedRevision,
+      });
+      this.relationshipChanges(id, old, "");
+      return { id, deleted: true };
+    });
+  }
+  reconcileTelemetry({ acknowledgeGap = false } = {}) {
+    return this.withContext({ phase: "reconciliation" }, () => {
+      const events = this.telemetry.audit(),
+        known = new Map();
+      for (const e of events) {
+        if (
+          ["create", "revise", "supersede", "delete", "reconcile"].includes(
+            e.operation,
+          )
+        )
+          for (const n of e.notes) known.set(n.id, n.version);
+      }
+      const live = new Map(
+        this.list({ observe: false }).map((n) => [
+          n.id,
+          contentVersion(n.text),
+        ]),
+      );
+      const notes = [...new Set([...known.keys(), ...live.keys()])]
+        .sort()
+        .map((id) => {
+          const expectedVersion = known.get(id) ?? null,
+            version = live.get(id) ?? null;
+          return {
+            id,
+            version,
+            expectedVersion,
+            state:
+              version === expectedVersion
+                ? "unchanged"
+                : version === null
+                  ? "missing"
+                  : expectedVersion === null
+                    ? "untracked"
+                    : "changed",
+          };
+        });
+      const differences = notes.filter((n) => n.state !== "unchanged");
+      if (!this.telemetryStatus().ok && !acknowledgeGap)
+        return { ok: false, needsReconciliation: true, differences };
+      // Explicit acknowledgement retains all old records. The new snapshot records
+      // uncertainty, not invented mutation timestamps or content.
+      const status = this.telemetry.batch(
+        "reconcile",
+        notes,
+        {},
+        { recovering: acknowledgeGap },
+      );
+      if (status.ok && acknowledgeGap) this.telemetry.acknowledge();
+      return { ...status, differences };
+    });
+  }
+}
+
+for (const name of [
+  "get",
+  "save",
+  "put",
+  "link",
+  "delete",
+  "supersede",
+  "search",
+  "list",
+]) {
+  const original = Memory.prototype[name];
+  Memory.prototype[name] = function (...args) {
+    try {
+      return original.apply(this, args);
+    } catch (error) {
+      this.telemetry.emit("operation_failed", {
+        failedOperation: { get: "read", list: "enumerate" }[name] || name,
+        errorClass:
+          error.code === "ENOENT"
+            ? "not_found"
+            : error.code
+              ? "io"
+              : "rejected",
+      });
+      throw error;
+    }
+  };
 }
