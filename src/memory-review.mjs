@@ -115,7 +115,7 @@ export async function reviewImmediateObservation(
       "; independent durable-knowledge review",
   };
 }
-export async function reviewMemoryPair(runtime, model, pair, policy) {
+export async function reviewMemoryPair(runtime, model, pair, policy, memory) {
   const maximum = Math.max(
     1,
     Math.min(3, policy.maintenance.maxReviewAttempts ?? 2),
@@ -123,6 +123,8 @@ export async function reviewMemoryPair(runtime, model, pair, policy) {
   let failure;
   for (let attempt = 1; attempt <= maximum; attempt++) {
     try {
+      const pairText = redactCredentialText(JSON.stringify(pair));
+      memory?.withContext({phase:"maintenance"}, () => memory.recordContextSupply([pair.a,pair.b],pair.a.text+"\n\n"+pair.b.text,{redacted:pairText!==JSON.stringify(pair)}));
       const response = await runtime.completeSimple(
         model,
         {
@@ -137,7 +139,7 @@ export async function reviewMemoryPair(runtime, model, pair, policy) {
               content: [
                 {
                   type: "text",
-                  text: redactCredentialText(JSON.stringify(pair)),
+                  text: pairText,
                 },
               ],
               timestamp: Date.now(),
@@ -288,7 +290,9 @@ export async function runMemoryReview(
     root,
     memory,
     sessions,
-    async (input) => {
+    async (input) => memory.withContext({sessionId:input.sessionId,phase:"retrospective"}, async () => {
+      const existingNotes = memory.search(input.records.map(r => r.text).join(" ")).filter(n => !containsCredential(n.text));
+      memory.recordContextSupply(existingNotes,existingNotes.map(n => n.text.slice(0,2000)).join("\n\n"),{perNoteLimit:2000});
       const response = await runtime.completeSimple(
         model,
         {
@@ -302,10 +306,7 @@ export async function runMemoryReview(
                   type: "text",
                   text: JSON.stringify({
                     ...input,
-                    existingNotes: memory
-                      .search(input.records.map((r) => r.text).join(" "))
-                      .filter((n) => !containsCredential(n.text))
-                      .map((n) => ({ id: n.id, text: n.text.slice(0, 2000) })),
+                    existingNotes: existingNotes.map(n => ({id:n.id,text:n.text.slice(0,2000)})),
                   }),
                 },
               ],
@@ -355,7 +356,7 @@ export async function runMemoryReview(
           .map((c) => c.text)
           .join(""),
       );
-    },
+    }),
     { maxSessions: policy.maintenance.maxSessionsPerRun || 1 },
   );
   const result = await maintain(
@@ -363,7 +364,7 @@ export async function runMemoryReview(
     memory,
     index,
     async (pair) => {
-      const verdict = await reviewMemoryPair(runtime, model, pair, policy);
+      const verdict = await reviewMemoryPair(runtime, model, pair, policy, memory);
       reviewAttempts.push(verdict.attempts);
       return verdict;
     },

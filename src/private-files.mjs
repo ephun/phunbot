@@ -131,7 +131,7 @@ export function replacePrivateText(directory, name, text) {
     fs.rmSync(directory.path + "/" + temporary, { force: true });
   }
 }
-export function acquirePrivateLock(root, name) {
+export function acquirePrivateLock(root, name, { reclaim = true } = {}) {
   if (!/^[a-z0-9-]+$/.test(name)) throw Error("Invalid private lock name");
   const directory = privateDirectory(root, "state"),
     lockPath = directory.path + "/" + name + ".lock";
@@ -185,6 +185,14 @@ export function acquirePrivateLock(root, name) {
           },
         };
       }
+      if (!reclaim) {
+        // A contender must not read an owner's file while it is being created.
+        // No owner metadata is needed when stale reclamation is disabled.
+        ownerDirectory.close();
+        ownerDirectory = null;
+        directory.close();
+        return null;
+      }
       let owner;
       try {
         owner = JSON.parse(readPrivateText(ownerDirectory, "owner.json"));
@@ -202,7 +210,7 @@ export function acquirePrivateLock(root, name) {
       }
       ownerDirectory.close();
       ownerDirectory = null;
-      if (stale) {
+      if (stale && reclaim) {
         fs.rmSync(lockPath, { recursive: true });
         continue;
       }

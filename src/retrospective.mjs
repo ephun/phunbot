@@ -234,12 +234,12 @@ async function consolidateLocked(
           session.id +
           ", entries " +
           proposal.sourceIds.join(", ");
-        const result = memory.put(
+        const result = memory.withContext({sessionId:session.id,phase:"retrospective"}, () => memory.put(
           proposal.id,
           proposal.title,
           proposal.body,
           source,
-        );
+        ));
         if (!result.unchanged) {
           report.written++;
           report.noteIds.push(proposal.id);

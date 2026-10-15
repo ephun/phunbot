@@ -22,7 +22,7 @@ function writeState(root, relative, name, value) {
   }
 }
 
-export async function maintain(
+async function maintainImpl(
   root,
   memory,
   index,
@@ -70,8 +70,7 @@ export async function maintain(
       snapshot.notes[pair.a].hash + ":" + snapshot.notes[pair.b].hash;
     if (!broad && previous.pairs[key] === version) continue;
     if (report.evaluated >= maxPairs) break;
-    const a = memory.get(pair.a),
-      b = memory.get(pair.b);
+    const [a,b] = memory.withContext({phase:"maintenance"}, () => [memory.get(pair.a),memory.get(pair.b)]);
     const result = await review({
       a: { id: pair.a, text: a },
       b: { id: pair.b, text: b },
@@ -96,7 +95,7 @@ export async function maintain(
         status: "potential_conflict_requires_review",
       });
     } else if (result.related) {
-      memory.link(pair.a, pair.b, result.reason.slice(0, 600));
+      memory.withContext({phase:"maintenance"}, () => memory.link(pair.a, pair.b, result.reason.slice(0, 600)));
       if (
         !memory.get(pair.a).includes("[[" + pair.b + "]]") ||
         !memory.get(pair.b).includes("[[" + pair.a + "]]")
@@ -124,4 +123,8 @@ export async function maintain(
     at: new Date().toISOString(),
   });
   return report;
+}
+
+export async function maintain(root, memory, index, review, options = {}) {
+  return memory.withContext({phase:"maintenance"}, () => maintainImpl(root,memory,index,review,options));
 }
