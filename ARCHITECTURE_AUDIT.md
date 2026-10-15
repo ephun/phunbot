@@ -2,7 +2,7 @@
 
 **Audit scope:** read-only review of the accepted baseline implementation at Unraid source commit `d410e08a8d32c5bdd71a338511c9ee49759544ba` (2026-10-14). No production code, permissions, containers, Hermes, ephunism, or n8n state was changed.
 
-**Review publication:** sanitized source-only repository prepared locally at `/opt/data/phunbot-review`. GitHub publication was not possible in this environment because `gh` is not installed and no authenticated GitHub remote was available. The owner action is to create a **private** repository named `phunbot`, add it as `origin`, and push the prepared `main` branch. The publication commit is recorded in the final report after this document is committed.
+**Historical baseline audit:** this document describes the earlier reviewed source, not the current revision. Publication setup notes from the original environment have been omitted. See `ARCHITECTURE_STATUS.md` for the current review boundary.
 
 ## Executive assessment
 

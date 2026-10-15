@@ -1,9 +1,289 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {start,completeRun,reconcileFailure} from '../app.mjs';
-test('web API rejects unauthenticated access and serves health',async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'phunbot-api-'));const app=await start({root,port:0,token:'test-token'});try{const base='http://127.0.0.1:'+app.address().port;assert.equal((await fetch(base+'/health')).status,200);assert.match((await(await fetch(base+'/health')).json()).startupAppSha256,/^[0-9a-f]{64}$/);assert.equal((await fetch(base+'/api/sessions',{method:'POST',body:'{}',headers:{'Content-Type':'application/json'}})).status,401);assert.equal((await fetch(base+'/api/runtime')).status,401);const runtime=await (await fetch(base+'/api/runtime',{headers:{Authorization:'Bearer test-token'}})).json();assert.equal(runtime.agentDir, (await import('@earendil-works/pi-coding-agent')).getAgentDir());assert.ok(runtime.mcpConfig);assert.deepEqual(runtime.sessions,[]);assert.deepEqual(runtime.activeNames,[]);assert.equal((await fetch(base+'/api/sessions',{headers:{Authorization:'Bearer test-token'}})).status,200);}finally{await new Promise(r=>app.close(r));}});
-test('configured executor role is used for new conversations',async()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'phunbot-policy-'));fs.mkdirSync(root+'/config');fs.writeFileSync(root+'/config/policy.json',JSON.stringify({roles:{executor:'fleet-fast-spark'},limits:{}}));const app=await start({root,port:0,token:'fixture'});try{const r=await fetch('http://127.0.0.1:'+app.address().port+'/api/sessions',{method:'POST',headers:{Authorization:'Bearer fixture','Content-Type':'application/json'},body:'{}'});assert.equal((await r.json()).model,'fleet-fast-spark');}finally{await new Promise(r=>app.close(r));}});
-test('app uses the configured vision role for image model decoration and validates before PATCH mutation',()=>{const source=fs.readFileSync(new URL('../app.mjs',import.meta.url),'utf8');assert.match(source,/reviewModel\(selected,imageRoleAllowed\(selected\.id,policy\.roles\)\)/);assert.match(source,/reviewModel\(selectedModel,imageRoleAllowed\(selectedModel\.id,policy\.roles\)\)/);assert.doesNotMatch(source,/selected\.id==='fleet-vision'/);assert.doesNotMatch(source,/model\.id===policy\.roles\.vision\?/);assert.match(source,/selectedModel=rt\.session\.modelRuntime\.getModel\(policy\.provider,b\.model\);if\(!selectedModel\)throw Error\('Unknown model'\);.*row\.model=b\.model/);});
-test('reading stored conversation history does not require a model runtime or occupy an execution slot',async()=>{const {SessionManager}=await import('@earendil-works/pi-coding-agent');const root=fs.mkdtempSync(path.join(os.tmpdir(),'phunbot-history-'));fs.mkdirSync(root+'/work');fs.mkdirSync(root+'/state');const manager=SessionManager.create(root+'/work',root+'/state/pi-sessions');manager.appendMessage({role:'user',content:'Historical request',timestamp:1});manager.appendMessage({role:'assistant',content:[{type:'text',text:'Historical answer'}],timestamp:2,api:'openai-completions',provider:'fixture',model:'fixture',usage:{input:0,output:0,totalTokens:0},stopReason:'stop'});const id='aabbccdd-0000-0000-0000-aabbccddeeff';fs.writeFileSync(root+'/state/conversations.json',JSON.stringify([{id,model:'nonexistent',sessionFile:manager.getSessionFile(),execution:'idle'}]));const app=await start({root,port:0,token:'fixture'});try{const res=await fetch('http://127.0.0.1:'+app.address().port+'/api/sessions/'+id+'/messages',{headers:{Authorization:'Bearer fixture'}});assert.equal(res.status,200);const body=await res.json();assert.equal(body.messages.find(m=>m.role==='user').content,'Historical request');}finally{await new Promise(r=>app.close(r));}});
-test('late detached completion cannot overwrite cancellation or a newer execution generation',()=>{const row={epoch:2,cancelRequested:true,execution:'cancelled'};assert.equal(completeRun(row,1,'retryable_error'),false);assert.equal(row.execution,'cancelled');row.cancelRequested=false;assert.equal(completeRun(row,1,'verified_complete'),false);assert.equal(completeRun(row,2,'idle'),true);assert.equal(row.execution,'idle');});
-test('timeout reconciles exact controller verification before retryable error',async()=>{const row={epoch:4,cancelRequested:false,execution:'running'};let saved;const controller={settle:async()=>({continue:false,reason:'verified_complete'})};const result=await reconcileFailure(row,4,controller,'goal-1',{lastError:'Execution slice timed out',save:cp=>{saved=cp}});assert.equal(result.reason,'verified_complete');assert.equal(row.execution,'verified_complete');assert.equal(saved,undefined);});
-test('unfinished timeout keeps retry accounting and cancellation wins over detached reconciliation',async()=>{const row={epoch:4,cancelRequested:false,execution:'running'};let saved;const cp={retries:1};const controller={settle:async()=>({continue:true,reason:'unfinished'}),checkpoint:()=>cp,save:x=>{saved=x}};const result=await reconcileFailure(row,4,controller,'goal-1',{lastError:'Execution slice timed out'});assert.equal(result.reason,'unfinished');assert.equal(row.execution,'retryable_error');assert.equal(cp.retries,2);assert.equal(cp.lastError,'Execution slice timed out');assert.equal(saved,cp);row.epoch=5;row.cancelRequested=true;await reconcileFailure(row,4,{settle:async()=>({reason:'verified_complete'}),checkpoint:()=>{throw Error('must not inspect stale goal')},save:()=>{throw Error('must not save stale goal')}},'goal-1',{lastError:'late'});assert.equal(row.execution,'retryable_error');});
-test('caught failure still attempts exact settlement before retry accounting',async()=>{const row={epoch:7,cancelRequested:false,execution:'running'};const cp={retries:0};let settled=false;const controller={settle:async()=>{settled=true;throw Error('temporary read failure')},checkpoint:()=>cp,save:x=>Object.assign(cp,x)};const result=await reconcileFailure(row,7,controller,'goal-2',{lastError:'provider failed'});assert.equal(settled,true);assert.equal(result.reason,'retryable_error');assert.equal(row.execution,'retryable_error');assert.equal(cp.retries,1);});
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { start, completeRun, reconcileFailure } from "../app.mjs";
+test("new conversations retain a usable default title", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "phunbot-title-"));
+  const server = await start({ root, token: "fixture", port: 0 });
+  try {
+    const response = await fetch("http://127.0.0.1:" + server.address().port + "/api/sessions", {
+      method: "POST", headers: { Authorization: "Bearer fixture", "Content-Type": "application/json" }, body: "{}",
+    });
+    assert.equal(response.status, 201);
+    assert.equal((await response.json()).title, "New conversation");
+  } finally { await new Promise((resolve) => server.close(resolve)); }
+});
+test("web API rejects unauthenticated access and serves health", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "phunbot-api-"));
+  const app = await start({ root, port: 0, token: "test-token" });
+  try {
+    const base = "http://127.0.0.1:" + app.address().port;
+    assert.equal((await fetch(base + "/health")).status, 200);
+    assert.match(
+      (await (await fetch(base + "/health")).json()).startupAppSha256,
+      /^[0-9a-f]{64}$/,
+    );
+    assert.equal(
+      (
+        await fetch(base + "/api/sessions", {
+          method: "POST",
+          body: "{}",
+          headers: { "Content-Type": "application/json" },
+        })
+      ).status,
+      401,
+    );
+    assert.equal((await fetch(base + "/api/runtime")).status, 401);
+    const runtime = await (
+      await fetch(base + "/api/runtime", {
+        headers: { Authorization: "Bearer test-token" },
+      })
+    ).json();
+    assert.equal(
+      runtime.agentDir,
+      (await import("@earendil-works/pi-coding-agent")).getAgentDir(),
+    );
+    assert.ok(runtime.mcpConfig);
+    assert.deepEqual(runtime.sessions, []);
+    assert.deepEqual(runtime.activeNames, []);
+    assert.equal(
+      (
+        await fetch(base + "/api/sessions", {
+          headers: { Authorization: "Bearer test-token" },
+        })
+      ).status,
+      200,
+    );
+  } finally {
+    await new Promise((r) => app.close(r));
+  }
+});
+test("configured executor role is used for new conversations", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "phunbot-policy-"));
+  fs.mkdirSync(root + "/config");
+  fs.writeFileSync(
+    root + "/config/policy.json",
+    JSON.stringify({ roles: { executor: "fleet-fast-spark" }, limits: {} }),
+  );
+  const app = await start({ root, port: 0, token: "fixture" });
+  try {
+    const r = await fetch(
+      "http://127.0.0.1:" + app.address().port + "/api/sessions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer fixture",
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      },
+    );
+    assert.equal((await r.json()).model, "fleet-fast-spark");
+  } finally {
+    await new Promise((r) => app.close(r));
+  }
+});
+test("app uses the configured vision role for image decoration and validates before PATCH mutation", () => {
+  const source = fs
+    .readFileSync(new URL("../app.mjs", import.meta.url), "utf8")
+    .replace(/\s+/g, "")
+    .replace(/"/g, "'");
+  assert.match(source,/reviewModel\(selected,imageRoleAllowed\(selected\.id,policy\.roles,policy\.routing,?\),?\)/);
+  assert.match(source,/reviewModel\(selectedModel,imageRoleAllowed\(selectedModel\.id,policy\.roles,policy\.routing,?\),?\)/);
+  const validation = source.indexOf(
+    "if(!selectedModel)throwError('Unknownmodel')",
+  );
+  assert.ok(validation >= 0);
+  assert.ok(validation < source.indexOf("row.model=b.model"));
+});
+test("reading stored conversation history does not require a model runtime or occupy an execution slot", async () => {
+  const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "phunbot-history-"));
+  fs.mkdirSync(root + "/work");
+  fs.mkdirSync(root + "/state");
+  const manager = SessionManager.create(
+    root + "/work",
+    root + "/state/pi-sessions",
+  );
+  manager.appendMessage({
+    role: "user",
+    content: "Historical request",
+    timestamp: 1,
+  });
+  manager.appendMessage({
+    role: "assistant",
+    content: [{ type: "text", text: "Historical answer" }],
+    timestamp: 2,
+    api: "openai-completions",
+    provider: "fixture",
+    model: "fixture",
+    usage: { input: 0, output: 0, totalTokens: 0 },
+    stopReason: "stop",
+  });
+  const id = "aabbccdd-0000-0000-0000-aabbccddeeff";
+  fs.writeFileSync(
+    root + "/state/conversations.json",
+    JSON.stringify([
+      {
+        id,
+        model: "nonexistent",
+        sessionFile: manager.getSessionFile(),
+        execution: "idle",
+      },
+    ]),
+  );
+  const app = await start({ root, port: 0, token: "fixture" });
+  try {
+    const res = await fetch(
+      "http://127.0.0.1:" +
+        app.address().port +
+        "/api/sessions/" +
+        id +
+        "/messages",
+      { headers: { Authorization: "Bearer fixture" } },
+    );
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(
+      body.messages.find((m) => m.role === "user").content,
+      "Historical request",
+    );
+  } finally {
+    await new Promise((r) => app.close(r));
+  }
+});
+test("late detached completion cannot overwrite cancellation or a newer execution generation", () => {
+  const row = { epoch: 2, cancelRequested: true, execution: "cancelled" };
+  assert.equal(completeRun(row, 1, "retryable_error"), false);
+  assert.equal(row.execution, "cancelled");
+  row.cancelRequested = false;
+  assert.equal(completeRun(row, 1, "verified_complete"), false);
+  assert.equal(completeRun(row, 2, "idle"), true);
+  assert.equal(row.execution, "idle");
+});
+test("timeout reconciles exact controller verification before retryable error", async () => {
+  const row = { epoch: 4, cancelRequested: false, execution: "running" };
+  let saved;
+  const controller = {
+    settle: async () => ({ continue: false, reason: "verified_complete" }),
+  };
+  const result = await reconcileFailure(row, 4, controller, "goal-1", {
+    lastError: "Execution slice timed out",
+    save: (cp) => {
+      saved = cp;
+    },
+  });
+  assert.equal(result.reason, "verified_complete");
+  assert.equal(row.execution, "verified_complete");
+  assert.equal(saved, undefined);
+});
+test("normal slice timeout yields without failed-attempt accounting; cancellation defeats detached responses", async () => {
+  const row = { epoch: 4, cancelRequested: false, execution: "running" };
+  let yields = 0;
+  const controller = {
+    settle: async () => ({ continue: true, reason: "unfinished" }),
+    yieldSlice: () => {
+      yields++;
+      return { continue: false, reason: "yielded" };
+    },
+    deferFailure: () => {
+      throw Error("must not count a normal yield as failure");
+    },
+  };
+  const result = await reconcileFailure(row, 4, controller, "goal-1", {
+    lastError: "Execution slice expired",
+    yielded: true,
+  });
+  assert.equal(result.reason, "yielded");
+  assert.equal(row.execution, "yielded");
+  assert.equal(yields, 1);
+  row.epoch = 5;
+  row.cancelRequested = true;
+  await reconcileFailure(
+    row,
+    4,
+    {
+      settle: () => {
+        throw Error("must not inspect a stale goal");
+      },
+    },
+    "goal-1",
+    { lastError: "late" },
+  );
+  assert.equal(row.execution, "yielded");
+});
+test("stale failure reconciliation cannot change a newer lease owner checkpoint", async () => {
+  const row = { epoch: 4, cancelRequested: false, execution: "running" };
+  let changed = false;
+  const controller = {
+    assertExecution: async () => {
+      throw Error("Lease belongs to another worker");
+    },
+    settle: async () => {
+      throw Error("stale");
+    },
+    yieldSlice: () => {
+      changed = true;
+    },
+    deferFailure: () => {
+      changed = true;
+    },
+  };
+  const result = await reconcileFailure(row, 4, controller, "goal", {
+    lastError: "late response",
+  });
+  assert.equal(changed, false);
+  assert.equal(result.reason, "stale_execution");
+});
+
+test("caught provider failure reconciles completion first, then records bounded backoff once", async () => {
+  const row = { epoch: 7, cancelRequested: false, execution: "running" };
+  let settled = false,
+    failures = 0;
+  const controller = {
+    settle: async () => {
+      settled = true;
+      throw Error("temporary read failure");
+    },
+    deferFailure: (_id, message) => {
+      assert.equal(message, "provider failed");
+      failures++;
+      return { continue: false, reason: "transient_failure", nextRunAt: 5000 };
+    },
+  };
+  const result = await reconcileFailure(row, 7, controller, "goal-2", {
+    lastError: "provider failed",
+  });
+  assert.equal(settled, true);
+  assert.equal(result.reason, "transient_failure");
+  assert.equal(row.execution, "transient_failure");
+  assert.equal(failures, 1);
+});
+
+test("browser assets are served from an exact public allowlist without exposing package or runtime files", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "phunbot-assets-"));
+  const app = await start({ root, port: 0, token: "fixture" });
+  try {
+    const base = "http://127.0.0.1:" + app.address().port;
+    for (const name of [
+      "/ui.css",
+      "/presentation.mjs",
+      "/assets/marked.js",
+      "/assets/purify.js",
+      "/assets/icons.js",
+    ])
+      assert.equal((await fetch(base + name)).status, 200, name);
+    assert.notEqual(
+      (await fetch(base + "/node_modules/marked/package.json")).status,
+      200,
+    );
+    assert.notEqual(
+      (await fetch(base + "/config/secrets/web-token")).status,
+      200,
+    );
+  } finally {
+    await new Promise((resolve) => app.close(resolve));
+  }
+});

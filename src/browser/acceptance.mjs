@@ -1,0 +1,507 @@
+// Browser presentation acceptance uses real HTTP/Pi history and a controlled UI fixture.
+// It is not provider, Nextcloud, AMP, or production acceptance.
+import { chromium } from "playwright";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import { start } from "../app.mjs";
+
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "phunbot-browser-"));
+const output =
+  process.env.PHUNBOT_BROWSER_OUTPUT ||
+  path.join(os.tmpdir(), "phunbot-browser-artifacts");
+fs.mkdirSync(output, { recursive: true });
+fs.mkdirSync(root + "/config");
+fs.mkdirSync(root + "/state");
+fs.writeFileSync(
+  root + "/config/policy.json",
+  JSON.stringify({
+    roles: {
+      executor: "fleet-fast",
+      reviewer: "fleet-deep",
+      vision: "fleet-vision",
+    },
+    limits: { maxActiveGoals: 1 },
+  }),
+);
+const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+fs.writeFileSync(
+  root + "/state/conversations.json",
+  JSON.stringify(
+    ids.map((id, i) => ({
+      id,
+      title: ["A clear answer", "Research notes", "Validation fixture"][i],
+      folder: ["Conversations", "Research", "Validation"][i],
+      model: "fleet-fast",
+      execution: "idle",
+    })),
+  ),
+);
+const managers = new Map();
+for (const id of ids) {
+  const manager = SessionManager.inMemory();
+  manager.appendMessage({
+    role: "user",
+    timestamp: 1000,
+    content: [{ type: "text", text: "Explain recursion with an example." }],
+  });
+  manager.appendCustomMessageEntry(
+    "goal-controller",
+    "Internal controller state — inspect only",
+    true,
+  );
+  manager.appendMessage({
+    role: "assistant",
+    timestamp: 2000,
+    content: [
+      {
+        type: "text",
+        text: "## A clear answer\n\nRecursion solves **smaller instances** of the same problem.\n\n| Part | Purpose |\n|---|---|\n| Base case | Stop |\n| Recursive step | Reduce |\n\n```javascript\nconst answer = 42;\n```\n\n[Reference](https://example.org)\n<script>window.PHUNBOT_UNSAFE=1</script>",
+      },
+    ],
+  });
+  manager.appendMessage({
+    role: "toolResult",
+    timestamp: 3000,
+    toolCallId: "fixture-tool",
+    toolName: "fixture_read",
+    content: [{ type: "text", text: '{"fixture":true,"result":"readback"}' }],
+    isError: false,
+  });
+  managers.set(id, manager);
+}
+const nc = {
+  data: new Map(),
+  async get(id) {
+    if (!this.data.has(id)) throw Error("Nextcloud 404");
+    return structuredClone(this.data.get(id));
+  },
+  async list() {
+    return [...this.data.values()].map((x) => structuredClone(x));
+  },
+  async put(value) {
+    this.data.set(value.id, structuredClone(value));
+    return structuredClone(value);
+  },
+};
+nc.data.set("browser-goal", {
+  id: "browser-goal",
+  kind: "goal",
+  conversationId: ids[0],
+  title: "Controlled pending operation",
+  status: "NEEDS-ACTION",
+  blocker: {
+    kind: "authorization",
+    reason: "A separate owner decision is required.",
+  },
+  authorizations: [
+    {
+      id: "browser-approval",
+      tool: "mcp__amp__amp_restart_instance",
+      args: { instanceId: "disposable-fixture" },
+      risk: "consequential",
+      state: "pending",
+    },
+  ],
+});
+nc.data.set("provisional-criterion", {
+  id: "provisional-criterion",
+  kind: "criterion",
+  parent: "browser-goal",
+  title: "Provisional readback awaits parent acceptance",
+  status: "COMPLETED",
+  evidence: {
+    verifiedAt: new Date().toISOString(),
+    verificationId: "unaccepted-fixture",
+  },
+});
+const server = await start({
+  root,
+  token: "browser-fixture",
+  port: 0,
+  ncClient: nc,
+  sessionFactory: async (row, { controller: c }) => {
+    const manager = managers.get(row.id) || SessionManager.inMemory();
+    managers.set(row.id, manager);
+    return {
+      busy: false,
+      session: {
+        sessionManager: manager,
+        modelRuntime: {
+          getAvailable: async () =>
+            ["fleet-fast", "fleet-deep", "fleet-vision"].map((id) => ({
+              id,
+              input: ["text"],
+            })),
+          getModel: (_provider, id) => ({ id, input: ["text"] }),
+        },
+        setModel: async () => {},
+        abort: async () => {},
+        sendCustomMessage: async (message, { triggerTurn = false } = {}) => {
+          manager.appendCustomMessageEntry(
+            message.customType,
+            message.content,
+            message.display,
+          );
+          if (triggerTurn)
+            throw Error(
+              "Controlled browser fixture unexpectedly requested another execution turn",
+            );
+        },
+        dispose() {},
+        prompt: async (text, { images = [] } = {}) => {
+          manager.appendMessage({
+            role: "user",
+            timestamp: Date.now(),
+            content: [{ type: "text", text }, ...images],
+          });
+          const goal = await nc.get(row.goalId);
+          if (!goal.planReady)
+            await c.plan(goal.id, [
+              {
+                title: "Controlled browser fixture response",
+                verifier: { kind: "evidence_review" },
+              },
+            ]);
+          const response =
+            "Controlled browser fixture response. This is not a provider or live service result.";
+          manager.appendMessage({
+            role: "assistant",
+            timestamp: Date.now(),
+            content: [{ type: "text", text: response }],
+          });
+          const event = c.record(
+            goal.id,
+            "controlled_browser_fixture",
+            {},
+            { synthetic: true },
+          );
+          const planned = await nc.get(goal.id);
+          await c.verify(goal.id, planned.expectedChildIds[0], async () => ({
+            pass: true,
+            reason: "Controlled presentation fixture emitted its response",
+            evidenceIds: [event.id],
+          }));
+        },
+      },
+    };
+  },
+});
+let browser, page;
+const errors = [];
+const checks = [];
+try {
+  browser = await chromium.launch({
+    headless: true,
+    args: ["--no-sandbox"],
+    executablePath: process.env.PHUNBOT_CHROMIUM || undefined,
+  });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 1000 },
+    permissions: ["clipboard-read", "clipboard-write"],
+  });
+  page = await context.newPage();
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("http://127.0.0.1:" + server.address().port);
+  await page.locator("#token").fill("browser-fixture");
+  await page.locator("#connect").click();
+  await page.waitForSelector("#login.hidden", { state: "attached" });
+  await page
+    .getByRole("button", { name: "A clear answer", exact: true })
+    .click();
+  await page.locator("article.assistant h2").waitFor();
+  assert.equal(await page.locator("article.assistant table").count(), 1);
+  checks.push("Markdown heading and table");
+  assert.match(
+    await page.locator("article.assistant pre code").innerText(),
+    /const answer = 42/,
+  );
+  checks.push("Code fence");
+  await page.getByRole("button", { name: "Copy message", exact: true }).click();
+  assert.match(
+    await page.evaluate(() => navigator.clipboard.readText()),
+    /Recursion/,
+  );
+  checks.push("Message copy");
+  await page.getByRole("button", { name: "Copy code", exact: true }).click();
+  assert.match(
+    await page.evaluate(() => navigator.clipboard.readText()),
+    /const answer = 42/,
+  );
+  checks.push("Code copy");
+  assert.equal(await page.evaluate(() => window.PHUNBOT_UNSAFE), undefined);
+  checks.push("Sanitized Markdown");
+  assert.equal(
+    await page
+      .locator("article.assistant")
+      .evaluate((el) => getComputedStyle(el).backgroundColor),
+    "rgba(0, 0, 0, 0)",
+  );
+  checks.push("Unboxed assistant text");
+  const research = page
+    .locator("details.folder-group")
+    .filter({ has: page.locator("summary", { hasText: "Research" }) });
+  await research.locator("summary").click();
+  assert.equal(await research.getAttribute("open"), null);
+  await page.screenshot({
+    path: output + "/desktop-collapsed.png",
+    fullPage: true,
+  });
+  await research.locator("summary").click();
+  checks.push("Collapsible folders");
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Validation fixture", exact: true })
+      .count(),
+    0,
+  );
+  checks.push("Validation history hidden by default");
+  assert.equal(
+    await page
+      .locator("#messages")
+      .getByText("Internal controller state", { exact: false })
+      .count(),
+    0,
+  );
+  await page.locator("#trace-panel > summary").click();
+  await page
+    .locator("#traces details")
+    .filter({ has: page.getByText("goal-controller", { exact: true }) })
+    .locator("summary")
+    .click();
+  await page.getByText("Internal controller state", { exact: false }).waitFor();
+  checks.push("Separate collapsible traces");
+  await page.locator("#trace-panel > summary").click();
+  await page
+    .getByRole("button", { name: "Organize conversation", exact: true })
+    .click();
+  await page.locator("#conversation-title").fill("Renamed conversation");
+  await page.locator("#conversation-folder").fill("Research");
+  await page
+    .getByRole("button", { name: "Save conversation", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Renamed conversation", exact: true })
+    .waitFor();
+  checks.push("Rename and folder movement");
+  await page
+    .getByRole("button", { name: "Inspect goal progress", exact: true })
+    .click();
+  await page
+    .getByText("A separate owner decision is required.", { exact: true })
+    .waitFor();
+  assert.match(
+    await page.locator("#progress-detail").innerText(),
+    /○ Provisional readback awaits parent acceptance/,
+  );
+  checks.push(
+    "Provisional child status is not displayed as accepted verification",
+  );
+  await page.screenshot({ path: output + "/progress.png", fullPage: true });
+  await page.locator("#progress-dialog [data-close]").click();
+  checks.push("Blocked progress inspection");
+  await page
+    .getByRole("button", {
+      name: "Inspect pending authorizations",
+      exact: true,
+    })
+    .click();
+  await page.locator("#approvaldialog[open]").waitFor();
+  assert.match(
+    await page.locator("#approvaldetail").innerText(),
+    /owner-cli\.mjs approve/,
+  );
+  assert.equal(
+    await page
+      .locator("#approvaldialog")
+      .getByRole("button", { name: "Approve once" })
+      .count(),
+    0,
+  );
+  await page.screenshot({
+    path: output + "/authorizations.png",
+    fullPage: true,
+  });
+  await page.locator("#approvaldialog [data-close]").click();
+  checks.push(
+    "Independent owner approval instructions, no bearer approval button",
+  );
+  await page.screenshot({ path: output + "/desktop.png", fullPage: true });
+  await page.reload();
+  await page.waitForSelector("#login.hidden", { state: "attached" });
+  await page
+    .getByRole("button", { name: "Renamed conversation", exact: true })
+    .click();
+  await page.locator("article.assistant h2").waitFor();
+  checks.push("Canonical history after reload");
+  await page
+    .getByRole("button", { name: "Create folder", exact: true })
+    .click();
+  await page.locator("#folder-name").fill("Empty folder");
+  await page
+    .locator("#folder-form")
+    .getByRole("button", { name: "Create folder", exact: true })
+    .click();
+  await page
+    .locator("details.folder-group")
+    .filter({ has: page.locator("summary", { hasText: "Empty folder" }) })
+    .getByText("No conversations yet")
+    .waitFor();
+  checks.push("Empty folder creation");
+  await page
+    .getByRole("button", { name: "Inspect goal progress", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Cancel this goal", exact: true })
+    .click();
+  await page
+    .locator("#progress-detail")
+    .getByText("Cancelled", { exact: true })
+    .waitFor();
+  await page.locator("#progress-dialog [data-close]").click();
+  checks.push("Exact goal cancellation");
+  await page.locator("#model").selectOption("fleet-vision");
+  await page.locator("#image").setInputFiles({
+    name: "fixture.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jS1sAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
+  await page
+    .locator("#attachment-preview")
+    .getByText("fixture.png", { exact: true })
+    .waitFor();
+  await page
+    .locator("#prompt")
+    .fill("Inspect this controlled browser fixture image.");
+  let admittedResolve;
+  const admitted = new Promise((resolve) => (admittedResolve = resolve));
+  const submissionIds = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/send"))
+      submissionIds.push(request.postDataJSON().requestId);
+  });
+  await page.route("**/api/sessions/*/send", async (route) => {
+    const response = await route.fetch();
+    const result = await response.json();
+    assert.equal(result.accepted, true);
+    await route.abort("failed");
+    admittedResolve(result);
+  });
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  const firstAdmission = await admitted;
+  await page.unroute("**/api/sessions/*/send");
+  await page.reload();
+  await page.waitForSelector("#login.hidden", { state: "attached" });
+  await page
+    .locator("#image")
+    .setInputFiles({
+      name: "fixture.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jS1sAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    });
+  await page
+    .locator("#prompt")
+    .fill("Inspect this controlled browser fixture image.");
+  const retryResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith("/send"),
+  );
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  const secondAdmission = await (await retryResponse).json();
+  assert.equal(submissionIds.length, 2);
+  assert.equal(submissionIds[1], submissionIds[0]);
+  assert.equal(secondAdmission.goalId, firstAdmission.goalId);
+  checks.push(
+    "Ambiguous admitted response retries with the same request and goal after reload",
+  );
+  await page.locator(".attachment-image").waitFor();
+  checks.push("Attachment control, durable admission and native image history");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page
+    .getByRole("button", { name: "Toggle sidebar", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Renamed conversation", exact: true })
+    .waitFor();
+  await page.waitForFunction(() => {
+    const sidebar = document.getElementById("sidebar").getBoundingClientRect();
+    return document.body.classList.contains("sidebar-open") && sidebar.left >= 0 && sidebar.right <= innerWidth;
+  });
+  await page.screenshot({
+    path: output + "/narrow-sidebar.png",
+    fullPage: true,
+  });
+  await page
+    .getByRole("button", { name: "Close sidebar", exact: true })
+    .click();
+  await page.waitForFunction(
+    () =>
+      !document.body.classList.contains("sidebar-open") &&
+      document.getElementById("sidebar").getBoundingClientRect().right <= 0,
+  );
+  checks.push("Narrow-screen navigation");
+  await page.screenshot({ path: output + "/narrow.png", fullPage: true });
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+    true,
+  );
+  checks.push("Narrow viewport has no horizontal overflow");
+  assert.equal(errors.length, 0, errors.join("\n"));
+  fs.writeFileSync(
+    output + "/report.json",
+    JSON.stringify(
+      {
+        passed: true,
+        scope: "Controlled browser fixture, not live-service acceptance",
+        checks,
+        errors,
+        screenshots: [
+          "desktop.png",
+          "desktop-collapsed.png",
+          "narrow.png",
+          "narrow-sidebar.png",
+          "progress.png",
+          "authorizations.png",
+        ],
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(JSON.stringify({ passed: true, checks, output }, null, 2));
+} catch (error) {
+  if (page)
+    await page.screenshot({ path: output + "/failure.png", fullPage: true });
+  console.error(
+    JSON.stringify({
+      root,
+      notice: page ? await page.locator("#notice").innerText() : null,
+      status: page ? await page.locator("#status").innerText() : null,
+      goals: await nc.list(),
+    }),
+  );
+  fs.writeFileSync(
+    output + "/failure.json",
+    JSON.stringify(
+      { passed: false, error: String(error), checks, errors },
+      null,
+      2,
+    ),
+  );
+  throw error;
+} finally {
+  if (browser) await browser.close();
+  await new Promise((resolve) => server.close(resolve));
+}

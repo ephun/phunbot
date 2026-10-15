@@ -1,6 +1,7 @@
 # Runtime and authoritative data are deliberately not committed
 src/node_modules/
 src/vendor/**/node_modules/
+src/vendor/**/dist/
 config/secrets/
 config/pi/agent/
 state/

@@ -1,0 +1,323 @@
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import fs from "node:fs";
+import http from "node:http";
+import crypto from "node:crypto";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+import assert from "node:assert/strict";
+const base = path.dirname(fileURLToPath(import.meta.url));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), "phunbot-native-fault-"));
+const data = new Map();
+let mode = "outage",
+  attempts = 0,
+  held = [],
+  chatStarted = 0;
+const children = [];
+const json = (res, status, value) => {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(value));
+};
+const stream = (res, text, tool = false) => {
+  if (res.destroyed) return;
+  res.writeHead(200, { "Content-Type": "text/event-stream" });
+  const common = {
+    id: "chatcmpl-fixture",
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model: "fixture-chat",
+  };
+  const delta = tool
+    ? {
+        role: "assistant",
+        tool_calls: [
+          {
+            index: 0,
+            id: "fixture-restart",
+            type: "function",
+            function: {
+              name: "mcp__amp__amp_restart_instance",
+              arguments: '{"instanceId":"controlled-target"}',
+            },
+          },
+        ],
+      }
+    : { role: "assistant", content: text };
+  res.write(
+    "data: " +
+      JSON.stringify({
+        ...common,
+        choices: [{ index: 0, delta, finish_reason: null }],
+      }) +
+      "\n\n",
+  );
+  res.write(
+    "data: " +
+      JSON.stringify({
+        ...common,
+        choices: [
+          { index: 0, delta: {}, finish_reason: tool ? "tool_calls" : "stop" },
+        ],
+      }) +
+      "\n\n",
+  );
+  res.end("data: [DONE]\n\n");
+};
+const fixture = http.createServer(async (req, res) => {
+  try {
+    let body = "";
+    for await (const c of req) body += c;
+    const b = body ? JSON.parse(body) : {};
+    if (req.url === "/tasks") {
+      const [v, etag] = b.args || [];
+      if (b.op === "get") {
+        if (!data.has(v))
+          return json(res, 404, { error: "Nextcloud 404 controlled" });
+        return json(res, 200, data.get(v));
+      }
+      if (b.op === "list") return json(res, 200, [...data.values()]);
+      if (b.op === "put") {
+        const old = data.get(v.id);
+        if ((old && old.etag !== etag) || (!old && etag))
+          return json(res, 412, { error: "Nextcloud 412 controlled" });
+        const value = { ...v, etag: crypto.randomUUID() };
+        data.set(v.id, value);
+        return json(res, 200, value);
+      }
+    }
+    if (req.url?.endsWith("/embeddings"))
+      return json(res, 200, {
+        data: b.input.map((_, index) => ({ index, embedding: [1, 0] })),
+      });
+    if (req.url?.endsWith("/chat/completions")) {
+      attempts++;
+      chatStarted++;
+      if (mode === "outage")
+        return json(res, 503, {
+          error: {
+            message: "Controlled upstream outage",
+            type: "server_error",
+          },
+        });
+      if (mode === "delay") {
+        held.push(res);
+        return;
+      }
+      if (mode === "denial") return stream(res, "", true);
+      return stream(
+        res,
+        "Recursion solves a problem by applying the same procedure to smaller inputs until a base case stops it.",
+      );
+    }
+    return json(res, 404, { error: "Unknown fixture endpoint" });
+  } catch (e) {
+    json(res, 500, { error: e.message });
+  }
+});
+await new Promise((r) => fixture.listen(0, "127.0.0.1", r));
+const fixtureUrl = "http://127.0.0.1:" + fixture.address().port;
+fs.mkdirSync(root + "/agent");
+fs.mkdirSync(root + "/config");
+fs.writeFileSync(
+  root + "/extension.mjs",
+  `import fs from 'node:fs';export default function(pi){pi.registerProvider('controlled',{api:'openai-completions',baseUrl:${JSON.stringify(fixtureUrl + "/v1")},apiKey:'controlled-not-a-real-key',models:[{id:'fixture-chat',name:'Controlled fixture',reasoning:false,input:['text'],cost:{input:0,output:0,cacheRead:0,cacheWrite:0},contextWindow:8192,maxTokens:512}]});pi.registerTool({name:'mcp__amp__amp_restart_instance',label:'Controlled AMP mutation',description:'Controlled fixture only',parameters:{type:'object',properties:{instanceId:{type:'string'}},required:['instanceId']},execute:async()=>{fs.writeFileSync(${JSON.stringify(root + "/MUTATION_SHOULD_NOT_EXIST")},'UNAUTHORIZED');return {content:[{type:'text',text:'unexpected mutation'}]};}});}`,
+);
+fs.writeFileSync(
+  root + "/agent/settings.json",
+  JSON.stringify({ extensions: [root + "/extension.mjs"] }),
+);
+fs.writeFileSync(
+  root + "/config/policy.json",
+  JSON.stringify({
+    provider: "controlled",
+    roles: {
+      executor: "fixture-chat",
+      reviewer: "fixture-chat",
+      vision: "fixture-chat",
+      embedding: "fixture-embed",
+    },
+    limits: {
+      sliceMs: 60000,
+      maxActiveGoals: 1,
+      maxOpenSessions: 4,
+      maxModelTurns: 8,
+      turns: 8,
+      retryBackoffMs: 100,
+      maxBackoffMs: 1000,
+      maxOutputTokens: 512,
+    },
+    maintenance: { maxPairsPerRun: 0, reviewTimeoutMs: 1000 },
+  }),
+);
+let child, url;
+const launch = async () => {
+  const log = fs.openSync(
+    root + "/child-" + children.length + ".stderr.log",
+    "w",
+  );
+  child = spawn(process.execPath, [base + "/native-fault-service.mjs"], {
+    env: {
+      ...process.env,
+      VALIDATION_ROOT: root,
+      PHUNBOT_ROOT: root,
+      PI_CODING_AGENT_DIR: root + "/agent",
+      FIXTURE_URL: fixtureUrl,
+    },
+    stdio: ["ignore", "pipe", log],
+  });
+  children.push(child);
+  const ready = await Promise.race([
+    new Promise((resolve, reject) => {
+      createInterface({ input: child.stdout }).once("line", (line) => {
+        try {
+          resolve(JSON.parse(line));
+        } catch (e) {
+          reject(e);
+        }
+      });
+      child.once("exit", (code) =>
+        reject(Error("child exited before ready " + code)),
+      );
+    }),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(Error("launch deadline")), 10000),
+    ),
+  ]);
+  url = "http://127.0.0.1:" + ready.port;
+  return ready;
+};
+const api = async (route, body) => {
+  const r = await fetch(url + "/api/" + route, {
+    method: body === undefined ? "GET" : "POST",
+    headers: {
+      Authorization: "Bearer native-fault-fixture",
+      "Content-Type": "application/json",
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const d = await r.json();
+  assert.ok(r.ok, JSON.stringify(d));
+  return d;
+};
+const wait = async (fn, ms = 90000) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    const result = await fn();
+    if (result) return result;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw Error("Bounded fixture deadline");
+};
+const cp = (gid) =>
+  JSON.parse(fs.readFileSync(root + "/state/executions/" + gid + ".json"));
+const report = {
+  root,
+  scope:
+    "Actual native Pi against controlled HTTP provider and durable parent-owned Tasks fixture; real process SIGKILL/restart; no real upstream/AMP mutation or production credentials",
+  checks: {},
+};
+try {
+  const first = await launch();
+  report.initialPid = first.pid;
+  report.health = await (await fetch(url + "/health")).json();
+  const row = await api("sessions", { title: "Native provider outage" });
+  const g = await api("sessions/" + row.id + "/send", {
+    requestId: "native-outage",
+    text: "What is recursion?",
+  });
+  await wait(() => cp(g.goalId).state === "transient_failure");
+  report.outageBefore = {
+    attempts,
+    state: cp(g.goalId).state,
+    nextRunAt: cp(g.goalId).nextRunAt,
+    lastError: cp(g.goalId).lastError,
+  };
+  assert.equal(data.get(g.goalId).status, "NEEDS-ACTION");
+  mode = "answer";
+  await wait(async () => {
+    await api("resume", {});
+    return data.get(g.goalId)?.status === "COMPLETED";
+  });
+  report.checks.nativeProvider503BackoffAndSameGoalRecovery = true;
+  report.outageGoalId = g.goalId;
+  const delayed = await api("sessions", {
+    title: "Delayed native cancellation",
+  });
+  mode = "delay";
+  const before = chatStarted;
+  const cancelled = await api("sessions/" + delayed.id + "/send", {
+    requestId: "cancel-delay",
+    text: "What is recursion?",
+  });
+  await wait(() => chatStarted > before);
+  await api("sessions/" + delayed.id + "/cancel", { goalId: cancelled.goalId });
+  assert.equal(data.get(cancelled.goalId).status, "CANCELLED");
+  const killed = child;
+  const exited = new Promise((r) => killed.once("exit", r));
+  killed.kill("SIGKILL");
+  await exited;
+  for (const response of held)
+    stream(
+      response,
+      "A stale delayed answer must not reopen the cancelled goal.",
+    );
+  held = [];
+  mode = "answer";
+  const second = await launch();
+  assert.notEqual(second.pid, first.pid);
+  await api("resume", {});
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(data.get(cancelled.goalId).status, "CANCELLED");
+  report.checks.delayedNativeResponseCancellationSurvivesRealRestart = true;
+  report.cancelledGoalId = cancelled.goalId;
+  report.restartedPid = second.pid;
+  const denied = await api("sessions", {
+    title: "Unauthorized controlled mutation",
+  });
+  mode = "denial";
+  const deniedGoal = await api("sessions/" + denied.id + "/send", {
+    requestId: "deny-mutation",
+    text: "Restart controlled-target.",
+  });
+  await wait(() =>
+    cp(deniedGoal.goalId).evidence.some(
+      (e) =>
+        e.error &&
+        (/restart_instance/.test(e.tool) || /restart_instance/.test(e.result)),
+    ),
+  );
+  assert.equal(fs.existsSync(root + "/MUTATION_SHOULD_NOT_EXIST"), false);
+  assert.notEqual(data.get(deniedGoal.goalId).status, "COMPLETED");
+  await api("sessions/" + denied.id + "/cancel", { goalId: deniedGoal.goalId });
+  report.checks.nativeConsequentialToolDeniedBeforeEffect = true;
+  report.deniedGoalId = deniedGoal.goalId;
+  report.passed = true;
+} catch (error) {
+  report.passed = false;
+  report.error = String(error);
+  throw error;
+} finally {
+  for (const response of held) response.destroy();
+  for (const p of children)
+    if (p.exitCode === null && p.signalCode === null) {
+      const end = new Promise((r) => p.once("exit", r));
+      p.kill("SIGTERM");
+      await Promise.race([end, new Promise((r) => setTimeout(r, 3000))]);
+      if (p.exitCode === null && p.signalCode === null) p.kill("SIGKILL");
+    }
+  await new Promise((r) => fixture.close(r));
+  fs.writeFileSync(root + "/report.json", JSON.stringify(report, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        passed: report.passed,
+        root,
+        checks: report.checks,
+        error: report.error,
+      },
+      null,
+      2,
+    ),
+  );
+}
