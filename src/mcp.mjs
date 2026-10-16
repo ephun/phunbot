@@ -56,7 +56,7 @@ const tools = [
     inputSchema: { type: "object", properties: {} },
   },
 ].filter(tool => {
-  if(tool.name === 'nextcloud_goals') return fs.existsSync(root+'/config/secrets/nextcloud.json') && fs.existsSync(root+'/config/nextcloud-ca.pem');
+  if(tool.name === 'nextcloud_goals') return fs.existsSync(root+'/config/secrets/nextcloud.json');
   if(tool.name === 'n8n_workflows') return fs.existsSync(root+'/config/secrets/n8n.json');
   return true;
 });

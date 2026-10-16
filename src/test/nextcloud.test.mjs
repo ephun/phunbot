@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -59,6 +60,28 @@ test('hostname mismatch and pin mismatch are rejected without leaking response o
 test('invalid config and cross-origin paths fail closed', async () => {
   const f = tlsFixture({ baseUrl: 'http://localhost' }); assert.throws(() => new Nextcloud(f.root), /HTTPS/);
   const good = tlsFixture(); const n = new Nextcloud(good.root); await assert.rejects(n.request('GET', 'https://other.invalid/steal'), /cross-origin/);
+});
+
+test('default trust remains available without a private CA and alongside an unrelated private CA', async () => {
+  const f = tlsFixture(); const other = tlsFixture(); const port = await listen(f.server);
+  const script = `import { Nextcloud } from ${JSON.stringify(new URL('../nextcloud.mjs', import.meta.url).href)}; const n = new Nextcloud(process.argv[1]); await n.request('GET', '/read-only');`;
+  const secretPath = path.join(f.root, 'config', 'secrets', 'nextcloud.json');
+  const secret = JSON.parse(fs.readFileSync(secretPath)); secret.baseUrl = `https://localhost:${port}`;
+  fs.writeFileSync(secretPath, JSON.stringify(secret));
+  try {
+    fs.unlinkSync(path.join(f.root, 'config', 'nextcloud-ca.pem'));
+    await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script, f.root], { env: { ...process.env, NODE_EXTRA_CA_CERTS: path.join(f.root, 'cert.pem') }, timeout: 10000 });
+    fs.copyFileSync(path.join(other.root, 'cert.pem'), path.join(f.root, 'config', 'nextcloud-ca.pem'));
+    await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script, f.root], { env: { ...process.env, NODE_EXTRA_CA_CERTS: path.join(f.root, 'cert.pem') }, timeout: 10000 });
+    assert.equal(f.requests.length, 2);
+  } finally { await close(f.server); }
+});
+
+test('missing private CA never permits an untrusted self-signed server', async () => {
+  const f = tlsFixture(); const port = await listen(f.server);
+  fs.unlinkSync(path.join(f.root, 'config', 'nextcloud-ca.pem'));
+  try { const n = new Nextcloud(f.root); n.baseUrl = new URL(`https://localhost:${port}`); await assert.rejects(n.request('GET', '/read-only'), /TLS verification failed/); assert.equal(f.requests.length, 0); }
+  finally { await close(f.server); }
 });
 
 test('a CA chain does not become an implicit leaf pin', async () => {

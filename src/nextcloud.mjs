@@ -55,7 +55,15 @@ export class Nextcloud {
     }
 
     let ca;
-    try { ca = fs.readFileSync(`${this.root}/config/nextcloud-ca.pem`); } catch { throw new Error('Nextcloud TLS configuration unavailable'); }
+    try {
+      const privateCa = fs.readFileSync(`${this.root}/config/nextcloud-ca.pem`);
+      // A private CA augments, rather than replaces, Node's default trust store.
+      ca = [...tls.getCACertificates('default'), privateCa];
+    } catch (error) {
+      // Publicly trusted HTTPS needs no deployment-specific CA file. Other
+      // filesystem errors remain configuration failures, never TLS bypasses.
+      if (error.code !== 'ENOENT') throw new Error('Nextcloud TLS configuration unavailable');
+    }
     let pin;
     try { pin = this.secret.certificateFingerprint256; } catch { throw new Error('Nextcloud TLS configuration invalid'); }
     if (pin !== undefined && (typeof pin !== 'string' || !/^[a-f0-9:]{95}$/i.test(pin))) throw new Error('Nextcloud TLS configuration invalid');
@@ -64,6 +72,7 @@ export class Nextcloud {
       const req = https.request(target, {
         method,
         ca,
+        rejectUnauthorized: true,
         // Only include servername (SNI) when it's a valid DNS hostname;
         // never set it to an IP address — use the connection's host for SNI instead.
         ...(this.serverName ? { servername: this.serverName } : {}),

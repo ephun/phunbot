@@ -7,6 +7,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+test('Nextcloud goals discovery does not require a private CA file', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nextcloud-mcp-discovery-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'config/secrets'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'config/secrets/nextcloud.json'), JSON.stringify({ baseUrl: 'https://cloud.example.invalid', username: 'fixture', password: 'fixture' }));
+  const transport = new StdioClientTransport({ command: process.execPath, args: [fileURLToPath(new URL('../mcp.mjs', import.meta.url))], env: { PATH: process.env.PATH, PHUNBOT_ROOT: root }, stderr: 'pipe' });
+  const client = new Client({ name: 'test', version: '1' });
+  try { await client.connect(transport); const listed = await client.listTools(); assert.ok(listed.tools.some(tool => tool.name === 'nextcloud_goals')); }
+  finally { await client.close(); await transport.close(); }
+});
+
 async function call(t, baseUrl) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "n8n-fixture-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
