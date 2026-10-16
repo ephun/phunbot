@@ -108,6 +108,7 @@ nc.data.set("browser-goal", {
   title: "Controlled pending operation",
   description: "Inspect the exact controlled pending operation before an independent owner decision.",
   status: "NEEDS-ACTION",
+  planRevisions: [{revision:1,previousDescription:'Historical controlled plan',criteria:[{id:'historical-criterion',title:'Historical readback',disposition:'superseded',accepted:true,verifier:{kind:'evidence_review'},evidence:{verificationId:'historical-receipt',evidenceIds:['historical-observation'],reason:'Independent historical readback'}}]}],
   blocker: {
     kind: "authorization",
     reason: "A separate owner decision is required.",
@@ -310,6 +311,16 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Stop', exact: true }).count(), 0);
   assert.match(await page.locator('#goalcontent').innerText(), /Current description/i);
   checks.push('Lifecycle labels, current description, and no Stop control');
+  const previousPlans=page.locator('details').filter({has:page.locator('summary', {hasText:'Previous plans'})});
+  await previousPlans.locator('summary').first().click();
+  const historical=previousPlans.locator('details').filter({has:page.locator('summary', {hasText:'Verification details'})});
+  assert.equal(await historical.count(),1);
+  await historical.locator('summary').click();
+  assert.match(await historical.innerText(),/historical-receipt/);
+  assert.match(await historical.innerText(),/historical-observation/);
+  assert.match(await historical.innerText(),/evidence_review/);
+  await previousPlans.locator('summary').first().click();
+  checks.push('Historical criterion verification remains inspectable');
   assert.match(await page.locator('#goalcontent').innerText(), /Not yet accepted/);
   assert.equal(await page.locator('.child .goal-icon.completed').count(), 0);
   checks.push('Provisional child status is not displayed as accepted verification');

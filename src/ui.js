@@ -558,7 +558,13 @@ async function showGoal(id, {
     for (const revision of g.planRevisions) {
       const record = el('section');
       record.append(el('h4', 'Revision ' + revision.revision), el('p', revision.previousDescription));
-      for (const criterion of revision.criteria || []) record.append(el('p', `${criterion.title} · ${criterion.disposition} · ${criterion.accepted ? 'Verified' : 'Not verified'}`));
+      for (const criterion of revision.criteria || []) {
+        record.append(el('p', `${criterion.title} · ${criterion.disposition} · ${criterion.accepted ? 'Verified' : 'Not verified'}`));
+        const verification = document.createElement('details');
+        verification.append(el('summary', 'Verification details'));
+        verification.append(el('pre', JSON.stringify({criterionId:criterion.id,verifier:criterion.verifier,evidence:criterion.evidence || null},null,2)));
+        record.append(verification);
+      }
       revisions.append(record);
     }
     content.append(revisions);

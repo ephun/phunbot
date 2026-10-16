@@ -283,7 +283,8 @@ export class Controller {
       }
       if (
         clean.some((t) => t.verifier.kind === "answer_quality") &&
-        !["answer", "arithmetic"].includes(outcomeContract(g.request).kind)
+        !(g.requestHistory?.length ? g.requestHistory : [{text:g.request,images:this.checkpoint(id).inputImages}]).every(request =>
+          ["answer", "arithmetic"].includes(outcomeContract(request.text, Boolean(request.images?.length)).kind))
       )
         throw Error(
           "Answer contract cannot verify an external or composite outcome; actual evidence required",
@@ -413,8 +414,24 @@ export class Controller {
             "Actual Pi assistant output; not independent proof of external state"
         )
           throw Error("Native final answer required");
-        const verdict = checkAnswer(g.request, output.text);
+        const requests = g.requestHistory?.length ? g.requestHistory : [{text:g.request,images:this.checkpoint(id).inputImages}];
+        const contracts = requests.map(request => outcomeContract(request.text, Boolean(request.images?.length)));
+        if (!contracts.every(contract => ["answer", "arithmetic"].includes(contract.kind)))
+          throw Error("Explicit evidence-backed criteria required");
+        if (requests.length > 1 && !this.answerReviewer)
+          throw Error("Independent review required for combined informational requests");
+        // The mutable description may summarize several simple requests. It is
+        // not a new external-effect contract. For combined answers, the separate
+        // deep operation checks every contributing request and current criterion.
+        const verdict = checkAnswer(requests.length === 1 ? requests[0].text : "Explain a concept", output.text);
         if (!verdict.pass) throw Error(verdict.reason);
+        if (requests.length > 1) {
+          const expectedResults = contracts.filter(contract => contract.kind === "arithmetic").map(contract => contract.expected);
+          const numbers = output.text.match(/-?\d+(?:\.\d+)?/g)?.map(Number) || [];
+          if (expectedResults.some(expected => !numbers.includes(expected)))
+            throw Error("Combined answer lacks an independently computed arithmetic result");
+          verdict.expectedResults = expectedResults;
+        }
         if (this.answerReviewer) {
           const independent = await this.answerReviewer(g,t,event,signal);
           if (independent?.pass !== true || typeof independent.reason !== "string" || !independent.reason.trim()) throw Error("Independent answer review rejected: " + (independent?.reason || "invalid verdict"));

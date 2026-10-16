@@ -5,10 +5,24 @@ import os from 'node:os';
 import path from 'node:path';
 import {SessionManager} from '@earendil-works/pi-coding-agent';
 import {start} from '../app.mjs';
-import {GoalQueue} from '../goal-queue.mjs';
+import {GoalQueue, dryRunGoalMigration} from '../goal-queue.mjs';
 import {Controller} from '../controller.mjs';
 import {planGoal,reviewGoalAnswer} from '../planning.mjs';
 import {deliverGoalRequests} from '../goal-delivery.mjs';
+import {Agent} from '@earendil-works/pi-agent-core';
+
+test('durable request delivery updates the installed native Pi agent context',()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'phunbot-native-delivery-'));
+ try {
+  const manager=SessionManager.create(root,root+'/sessions');
+  const agent=new Agent();
+  const goal={id:'native-goal',requestHistory:[{requestId:'native-request',text:'Use the current instructions',images:[]}]};
+  deliverGoalRequests({sessionManager:manager,agent},goal);
+  assert.ok(agent.state.messages.some(m=>m.role==='user'&&m.phunbotRequestId==='native-request'));
+  deliverGoalRequests({sessionManager:manager,agent},goal);
+  assert.equal(agent.state.messages.filter(m=>m.phunbotRequestId==='native-request').length,1);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
 
 class Tasks {
   data=new Map(); counter=0;
@@ -99,6 +113,10 @@ test('deep plan revision retains useful accepted evidence and archives supersede
   const again=await q.admit(input('c','Replace the original file requirement with the report only'));
   await c.applyPlanning(g.id,{...d,criteria:[{title:'Report present',verifier:{kind:'file_contains',path:'report.txt',text:'report'}}]},again.revision);
   const final=await nc.get(g.id);assert.equal(final.planRevisions.at(-1).criteria.find(t=>t.id===old).disposition,'superseded');assert.equal((await nc.get(old)).status,'COMPLETED');
+  const reintroduced=await q.admit(input('d','Restore the original file criterion'));
+  await c.applyPlanning(g.id,d,reintroduced.revision);
+  const restored=await nc.get(g.id),fresh=await nc.get(restored.expectedChildIds[0]);
+  assert.notEqual(fresh.id,old);assert.equal(fresh.status,'NEEDS-ACTION');assert.equal(c.criterionAccepted(restored,fresh),false);assert.equal((await nc.get(old)).status,'COMPLETED');
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
 
@@ -118,6 +136,67 @@ test('native request delivery is idempotent across reopened Pi history and retai
  deliverGoalRequests({sessionManager:manager},goal);deliverGoalRequests({sessionManager:manager},goal);
  const reopened=SessionManager.open(manager.getSessionFile());deliverGoalRequests({sessionManager:reopened},goal);assert.equal(reopened.getBranch().filter(e=>e.type==='message').length,1);
  assert.equal(reopened.getBranch().find(e=>e.type==='message').message.content[1].data,'AAAA');
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('rapid messages serialize into one latest active plan',async()=>{
+ const f=await fixture();try{
+  const {data:c}=await f.api('sessions',{});
+  const replies=await Promise.all(['a','b','c'].map(id=>f.api('sessions/'+c.id+'/send',input(id,'Inspect requested state '+id,c.id))));
+  assert.ok(replies.every(r=>r.status===202));const ids=new Set(replies.map(r=>r.data.goalId));assert.equal(ids.size,1);
+  const id=replies[0].data.goalId;await until(async()=>{const g=await f.nc.get(id);return g.revision===3&&g.planRevision===3&&!g.needsPlanning;});
+  const g=await f.nc.get(id);assert.equal(g.requestReceipts.length,3);assert.equal(g.requestHistory.length,3);assert.equal(g.lease.revision,3);
+  assert.equal((await f.nc.list()).filter(g=>g.kind==='goal'&&!['COMPLETED','CANCELLED'].includes(g.status)).length,1);
+ }finally{await f.close();}
+});
+
+test('isolated legacy copies reconcile exact catalog/checkpoint associations without losing history or writing production',async()=>{
+ const original=[{id:'legacy',kind:'goal',status:'NEEDS-ACTION',request:'Original request',expectedChildIds:['criterion'],verificationReceipts:{criterion:'receipt'}},{id:'criterion',kind:'criterion',parent:'legacy',status:'COMPLETED',evidence:{kind:'fixture',value:'preserved'}},{id:'terminal',kind:'goal',status:'COMPLETED',completionKind:'verified'}];
+ const copy=structuredClone(original);const report=dryRunGoalMigration(copy,[{id:'conversation',sessionFile:'exact-session-reference'}],id=>id==='legacy'?{sessionFile:'exact-session-reference'}:{});
+ assert.equal(report.safe,true);assert.equal(report.writes,0);assert.deepEqual(original,copy);assert.deepEqual(report.assignments,[{goalId:'legacy',conversationId:'conversation'}]);
+ const nc=new Tasks();for(const row of copy)await nc.put(row);const old=await nc.get('legacy');await nc.put({...old,conversationId:report.assignments[0].conversationId},old.etag);
+ const migrated=await nc.get('legacy');assert.equal(migrated.id,'legacy');assert.deepEqual(migrated.verificationReceipts,original[0].verificationReceipts);assert.deepEqual((await nc.get('criterion')).evidence,original[1].evidence);assert.equal((await nc.get('terminal')).status,'COMPLETED');
+ assert.equal(dryRunGoalMigration(original,[],()=>({})).safe,false);
+});
+
+test('revised informational descriptions verify contributing requests rather than rejecting their combined summary',async()=>{
+ const nc=new Tasks(),q=new GoalQueue(nc),root=fs.mkdtempSync(path.join(os.tmpdir(),'phunbot-info-replan-')),c=new Controller(root,nc);
+ try {
+  const initial=await q.admit(input('a','What is recursion?'));
+  const d={...decision(initial),criteria:[{title:'Explain recursion',verifier:{kind:'answer_quality'}}]};await c.applyPlanning(initial.id,d,1);
+  const revised=await q.admit(input('b','Define MCP'));
+  await c.applyPlanning(initial.id,{...d,description:'Explain recursion and define MCP',criteria:[...d.criteria,{title:'Define MCP',verifier:{kind:'answer_quality'}}]},revised.revision);
+  c.record(initial.id,'assistant_output',{}, {final:true,source:'Actual Pi assistant output; not independent proof of external state',text:'Recursion solves a problem by calling itself on smaller instances until a base case. MCP stands for Model Context Protocol and connects AI applications with tools and contextual data.'});
+  const first=(await nc.get(initial.id)).expectedChildIds[0];
+  await assert.rejects(()=>c.verify(initial.id,first),/Independent review required/);
+  c.answerReviewer=async()=>({pass:false,reason:'Controlled rejection'});
+  await assert.rejects(()=>c.verify(initial.id,first),/Independent answer review rejected/);
+  assert.equal((await nc.get(initial.id)).verificationReceipts?.[first],undefined);
+  c.answerReviewer=async(_g,t)=>({pass:true,reason:'Controlled independent review of '+t.title});
+  for(const id of (await nc.get(initial.id)).expectedChildIds)await c.verify(initial.id,id);
+  assert.equal((await c.settle(initial.id)).reason,'verified_complete');
+  assert.equal((await nc.get(initial.id)).status,'COMPLETED');
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('contributing image metadata still requires visual evidence and cannot use answer-quality acceptance',async()=>{
+ const nc=new Tasks(),q=new GoalQueue(nc),root=fs.mkdtempSync(path.join(os.tmpdir(),'phunbot-visual-contract-')),c=new Controller(root,nc);
+ try {
+  const g=await q.admit({...input('a','What is this?'),images:[{mimeType:'image/png',data:'AAAA'}]});
+  await assert.rejects(()=>c.applyPlanning(g.id,{...decision(g),criteria:[{title:'Identify picture',verifier:{kind:'answer_quality'}}]},1),/actual evidence required/);
+  assert.equal((await nc.get(g.id)).planReady,undefined);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('combined arithmetic retains every independently computed result and still requires deep review',async()=>{
+ const nc=new Tasks(),q=new GoalQueue(nc),root=fs.mkdtempSync(path.join(os.tmpdir(),'phunbot-combined-math-')),c=new Controller(root,nc);
+ try {
+  const g=await q.admit(input('a','Calculate 2+2'));const next=await q.admit(input('b','Calculate 3+5'));
+  await c.applyPlanning(g.id,{...decision(next),description:'Calculate both sums',criteria:[{title:'Answer both sums',verifier:{kind:'answer_quality'}}]},next.revision);
+  const criterion=(await nc.get(g.id)).expectedChildIds[0];c.answerReviewer=async()=>({pass:true,reason:'Controlled deep arithmetic coverage check'});
+  const emit=text=>c.record(g.id,'assistant_output',{}, {final:true,source:'Actual Pi assistant output; not independent proof of external state',text});
+  emit('The first sum is 4.');await assert.rejects(()=>c.verify(g.id,criterion),/independently computed arithmetic result/);
+  emit('The first sum is 4 and the second sum is 8.');const verified=await c.verify(g.id,criterion);assert.deepEqual(verified.evidence.expectedResults,[4,8]);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
 

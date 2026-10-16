@@ -15,6 +15,6 @@ export function deliverGoalRequests(session, goal) {
     appended.push(request);
     delivered.add(request.requestId); changed=true;
   }
-  if (changed && session.agent) session.agent.replaceMessages(manager.buildSessionContext().messages);
+  if (changed && session.agent) session.agent.state.messages = manager.buildSessionContext().messages;
   return appended;
 }
