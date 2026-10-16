@@ -317,10 +317,11 @@ export class Controller {
         );
         return prior?.id || crypto.createHash("sha256").update(`${id}:${g.revision || 1}:${planId}:${i}`).digest("hex").slice(0, 32);
       });
+      let stagedParent = g;
       if (!g.planReady || (g.planRevision || 1) !== (g.revision || 1)) {
         await this.assertExecution(id);
-        await this.nc.put(
-          { ...g, planId, planRevision: g.revision || 1, expectedChildIds: expected, planReady: true },
+        stagedParent = await this.nc.put(
+          { ...g, planId, planRevision: g.revision || 1, expectedChildIds: expected, planReady: false },
           g.etag,
           signal,
         );
@@ -348,6 +349,14 @@ export class Controller {
             )),
         );
       }
+      const publication = await this.nc.get(id, signal);
+      await this.assertExecution(id);
+      if (publication.etag !== stagedParent.etag ||
+          ["COMPLETED","CANCELLED"].includes(publication.status) ||
+          (publication.revision || 1) !== (g.revision || 1) || publication.planId !== planId)
+        throw Error("Plan superseded before publication");
+      if (!publication.planReady)
+        await this.nc.put({...publication,planReady:true},publication.etag,signal);
       return result;
     });
   }

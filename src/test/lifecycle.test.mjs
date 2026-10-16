@@ -218,6 +218,7 @@ test("planning stops child writes on lease loss and resumes the exact partial pl
   };
   await assert.rejects(() => c.plan(g.id, criteria), /revoked/);
   assert.equal((await nc.list()).filter((t) => t.parent === g.id).length, 1);
+  assert.equal((await nc.get(g.id)).planReady, false, 'A partial plan must remain eligible for deep planning after restart');
   const planned = (await nc.get(g.id)).expectedChildIds;
   valid = true;
   nc.put = put;
@@ -226,6 +227,22 @@ test("planning stops child writes on lease loss and resumes the exact partial pl
     planned,
   );
   assert.equal((await nc.list()).filter((t) => t.parent === g.id).length, 2);
+});
+
+test('plan publication rejects a parent ETag changed after staging', async () => {
+  const {controller:c,nc}=setup();
+  const g=await c.create('Create an artifact','session','model');
+  const put=nc.put.bind(nc);
+  nc.put=async (...args)=>{
+    const result=await put(...args);
+    if(args[0].kind==='criterion') {
+      const parent=await nc.get(g.id);
+      await put({...parent,blocker:{kind:'authorization',reason:'Concurrent owner boundary'}},parent.etag);
+    }
+    return result;
+  };
+  await assert.rejects(()=>c.plan(g.id,[{title:'Artifact',verifier:{kind:'file_contains',path:'one',text:'ONE'}}]),/parent version|superseded/i);
+  assert.equal((await nc.get(g.id)).planReady,false);
 });
 
 class Tasks {
