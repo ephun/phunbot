@@ -266,10 +266,12 @@ export class Controller {
   async assertExecution(id) {
     if (this.executionGuard) await this.executionGuard(id);
   }
-  async plan(id, criteria, signal, review) {
+  async plan(id, criteria, signal, review, expectedRevision) {
     return this.lock(id, async () => {
       signal?.throwIfAborted();
       const g = await this.nc.get(id, signal);
+      if (expectedRevision !== undefined && (g.revision || 1) !== expectedRevision)
+        throw Error("Stale planning decision");
       if (g.invalid || ["COMPLETED", "CANCELLED"].includes(g.status))
         throw Error("Goal is terminal");
       const clean = this.validateCriteria(criteria);
@@ -369,7 +371,7 @@ export class Controller {
     }
     const clean = this.validateCriteria(decision.criteria);
     const previous = (await this.nc.list(signal)).filter(t => t.kind === "criterion" && t.parent === id && (!before.expectedChildIds || before.expectedChildIds.includes(t.id)));
-    await this.plan(id, clean, signal);
+    await this.plan(id, clean, signal, undefined, revision);
     await this.assertExecution(id);
     const current = await this.nc.get(id, signal);
     if ((current.revision || 1) !== revision) throw Error("Stale planning decision");

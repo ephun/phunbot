@@ -200,6 +200,18 @@ test('combined arithmetic retains every independently computed result and still 
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
 
+test('a followup between applyPlanning validation and plan entry cannot stage obsolete criteria',async()=>{
+ const nc=new Tasks(),q=new GoalQueue(nc),root=fs.mkdtempSync(path.join(os.tmpdir(),'phunbot-plan-entry-fence-')),c=new Controller(root,nc);
+ try {
+  const g=await q.admit(input('a','Inspect initial state'));
+  const list=nc.list.bind(nc);let revise=true;
+  nc.list=async()=>{if(revise){revise=false;await q.admit(input('b','Inspect the revised state instead'));}return list();};
+  await assert.rejects(()=>c.applyPlanning(g.id,decision(g),1),/Stale planning decision/);
+  const latest=await nc.get(g.id);assert.equal(latest.revision,2);assert.equal(latest.planId,undefined);
+  assert.equal((await nc.list()).filter(t=>t.kind==='criterion').length,0);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
 test('planning and answer verification use separate configured deep operations and malformed plans fail closed',async()=>{
  const calls=[];const runtime={getModel:(provider,id)=>{assert.equal(provider,'configured');assert.equal(id,'deep');return {id};},completeSimple:async(_m,p)=>{calls.push(p);return {content:[{type:'text',text:JSON.stringify(p.systemPrompt.includes('deep goal planner')?decision({title:'Q',request:'What is recursion?'}):{pass:true,reason:'Answer independently checked'})}]};}};
  const policy={provider:'configured',roles:{executor:'fast',reviewer:'deep'}};
