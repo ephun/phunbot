@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PhunBot — Prototype v6</title>
+<style>
+:root{color-scheme:light;--text:#1a2520;--muted:#78837b;--bg:#fff;--sidebar:#f7f8f6;--line:#e7ece7;--green:#347553;--green-light:#e9f2eb;--amber:#9c6b27;--amber-light:#f6ead3;--blue:#487de0;--user:#f0f3ef}
+*{box-sizing:border-box}html,body{height:100%;margin:0}body{font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;color:var(--text);background:var(--bg)}button,input,textarea{font:inherit}button{border:0;background:transparent;color:inherit;cursor:pointer}button:hover{background:#ecf0ec}button:focus-visible,textarea:focus-visible,input:focus-visible{outline:2px solid #7da18a;outline-offset:2px}button[hidden],[hidden]{display:none!important}a{color:inherit}.icon{height:18px;width:18px;flex:none;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.8}
+.app{display:flex;width:100%;height:100dvh;overflow:hidden;min-height:400px}.sidebar{width:282px;flex:0 0 282px;display:flex;flex-direction:column;background:var(--sidebar);border-right:1px solid var(--line);z-index:30}.brand{display:flex;align-items:center;justify-content:space-between;padding:24px 16px 19px}.logotype{font-weight:760;letter-spacing:-.75px;font-size:20px;display:flex;align-items:center;gap:8px}.logomark{color:#447756;font-size:21px}.icon-button{height:34px;width:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:9px;flex:none}.navigation{padding:0 10px 13px}.navlink{display:flex;gap:13px;align-items:center;width:100%;padding:11px 12px;font-weight:470;font-size:14px;border-radius:9px;text-align:left}.navlink.active{background:#e9eeea;color:#245b3e;font-weight:620}.nav-count{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:12px}.nav-count .signal{margin-right:0}.side-scroll{min-height:0;overflow-y:auto;flex:1;padding:0 10px 10px}.navheading{font-size:10px;text-transform:uppercase;letter-spacing:.11em;color:#88968d;font-weight:650;padding:22px 11px 11px}.folder{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:9px 10px;border-radius:8px;font-weight:590}.folder .icon{color:#758078;width:16px}.folder-arrow{margin-left:auto;transition:transform .2s}.folder.closed .folder-arrow{transform:rotate(-90deg)}.folder-group{padding-left:9px}.chatlink{display:flex;align-items:center;gap:9px;text-align:left;width:100%;min-width:0;padding:10px 10px;border-radius:9px;font-size:13px}.chatlink.selected{background:#e6ebe7}.chatlink .bubble-icon{color:#929e94;height:16px;width:16px}.chatlink .name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}.chatlink.unread .name{font-weight:720}.signals{display:flex;gap:8px;align-items:center;flex:none}.signal{flex:none;display:inline-block}.signal.unread{height:8px;width:8px;border-radius:50%;background:var(--blue);box-shadow:0 0 0 2px #e5ecfb}.signal.working{height:15px;width:15px;border:2px solid #579268;border-top-color:transparent;border-radius:50%;animation:spin 1.25s linear infinite}.signal.blocked{width:16px;height:16px;border-radius:6px;background:var(--amber-light);font-size:12px;color:var(--amber);font-weight:850;text-align:center;line-height:16px}.signal.waiting{color:#89948b;width:16px;height:16px}.side-foot{border-top:1px solid var(--line);color:#a1aaa2;font-size:11px;padding:14px 18px}
+main{flex:1;display:flex;flex-direction:column;min-width:0}.topbar{flex:0 0 62px;min-height:62px;display:flex;align-items:center;padding:0 26px;gap:12px;border-bottom:1px solid #f0f2ef}.title-group{min-width:0;flex:1}.topbar h1{font-size:15px;font-weight:640;letter-spacing:-.15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:0}.top-status{font-size:12px;color:#547761;display:flex;align-items:center;gap:7px;white-space:nowrap}.top-status .signal.working{height:12px;width:12px}.mobile-menu{display:none}.view{min-height:0;display:flex;flex:1;flex-direction:column}.scroll{flex:1;min-height:0;overflow:auto}.messages{max-width:800px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;gap:31px;padding:44px 32px 40px}.message{line-height:1.75;max-width:720px}.message.user{align-self:flex-end;max-width:min(83%,580px);background:var(--user);padding:12px 17px;border-radius:17px;white-space:pre-wrap}.message.assistant{align-self:stretch;font-size:14px}.message.assistant p{margin:0 0 13px}.message.assistant .meta{color:#9ca59c;font-size:11px;margin-top:8px}.message .prompt-actions{display:flex;gap:8px;flex-wrap:wrap;margin:17px 0 3px}.prompt-actions button{border:1px solid #dce5dc;border-radius:10px;padding:9px 15px;font-weight:610;font-size:13px;background:#fff}.prompt-actions button.primary{background:#345e44;color:white;border-color:#345e44}.prompt-actions button.primary:hover{background:#467756}.prompt-actions button:hover{background:#f0f4f0}.prompt-actions button.primary:hover{background:#467756}.typing{display:flex;align-items:center;gap:5px;height:26px;color:#9aada0}.typing i{height:6px;width:6px;background:#85a18d;border-radius:50%;animation:pulse 1.1s infinite}@keyframes pulse{0%,70%,100%{opacity:.35;transform:translateY(0)}35%{opacity:1;transform:translateY(-4px)}}@keyframes spin{to{transform:rotate(360deg)}}.compose-wrap{padding:13px 23px max(16px,env(safe-area-inset-bottom));border-top:1px solid #f1f2f0;background:#fff}.composer{max-width:792px;margin:0 auto;border:1px solid #dce5dc;border-radius:16px;padding:11px 12px 9px;box-shadow:0 3px 13px #15351a08}.composer textarea{display:block;background:none;border:0;outline:none!important;resize:none;width:100%;min-height:51px;max-height:140px;font-size:14px;line-height:1.55;color:var(--text);padding:3px 4px}.composer .controls{display:flex;justify-content:space-between;align-items:center}.send{width:33px;height:33px;display:grid;place-items:center;color:white;background:#2b4f39;border-radius:50%}.send:hover{background:#416c4f}.subtle-plus{color:#7b8d7f}.subtle-plus:hover{border-radius:50%}
+.page{max-width:870px;margin:0 auto;padding:35px 32px 80px;width:100%}.goalspage{padding-top:30px}.page h2{margin:0 0 25px;font-weight:700;letter-spacing:-.65px;font-size:25px}.filters{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 23px}.filter{border:1px solid #e5eae5;border-radius:9px;padding:8px 13px;background:white;font-size:12px}.filter.current{background:var(--green-light);border-color:#d1e2d4;color:#265f3c;font-weight:640}.goalrow{width:100%;display:flex;gap:13px;align-items:center;text-align:left;border-top:1px solid var(--line);padding:17px 3px;border-radius:4px}.goalrow:hover{background:#fafbfa}.goalrow .primary-text{font-size:14px;line-height:1.48;font-weight:570}.goalrow .minor{font-size:12px;color:#829085;margin-top:6px}.goalrow .right{margin-left:auto;color:#a2aca4}.goal-icon{width:21px;height:21px;border:2px solid #bbc5bb;border-radius:50%;display:grid;place-items:center;flex:none;color:#fff}.goal-icon.completed{background:var(--green);border-color:var(--green)}.goal-icon.working{border-color:#599969;border-top-color:transparent;animation:spin 1.5s linear infinite}.goal-icon.blocked{border-color:#d8ad70;color:#b47b29}.goal-icon.waiting{border-color:#bbc5bb;color:#93a399}.goal-icon .icon{width:12px;height:12px}.goalhead{max-width:890px;width:100%;margin:auto;padding:24px 32px 11px}.back{font-size:12px;color:#5a7962;display:flex;align-items:center;gap:6px;margin:0 0 17px;padding:5px 0}.back:hover{background:none;text-decoration:underline}.goalhead h2{font-size:23px;font-weight:700;letter-spacing:-.5px;line-height:1.35;margin:0 0 13px}.goalmeta{display:flex;align-items:center;gap:11px;color:#8b978d;font-size:12px}.goalmeta .status{font-weight:650;color:#3a7854}.goalmeta .status.blocked{color:#aa742e}.goalmeta .status.waiting{color:#7e8c83}.goalmeta button{font-size:12px;color:#56745c;padding:0}.goalmeta button:hover{text-decoration:underline;background:none}.goalcontent{max-width:890px;width:100%;margin:0 auto;padding:10px 32px 70px;flex:1;overflow-y:auto}.wait-strip{margin:18px 0 24px;display:flex;gap:10px;align-items:center;font-size:13px;line-height:1.6;color:#647166}.wait-strip .icon{color:#8a9b8e;width:17px;height:17px}.wait-strip button{color:#3c7050;text-decoration:underline;text-underline-offset:3px;padding:0}.wait-strip button:hover{background:transparent}.gsection{margin:25px 0 0}.gsection h3{font-size:11px;font-weight:740;letter-spacing:.095em;text-transform:uppercase;color:#8a988d;margin:0 0 13px}.child{border-top:1px solid var(--line);padding:14px 0}.childtop{display:flex;align-items:flex-start;gap:11px}.childtitle{font-size:14px;line-height:1.55;font-weight:565}.childstatus{margin-top:4px;color:#8d9a8f;font-size:11px}.child .goal-icon{width:17px;height:17px;margin-top:2px}.child .goal-icon .icon{height:10px;width:10px}.details-toggle{color:#677b6b;display:inline-flex;align-items:center;gap:7px;font-size:12px;padding:6px 2px;margin:8px 0 0 28px}.details-toggle:hover{text-decoration:underline;background:transparent}.events{margin:7px 0 3px 28px;padding:2px 0 2px 16px;border-left:2px solid #e6ebe6}.event{padding:10px 0;color:#526457;font-size:12px}.event-head{display:flex;align-items:center;gap:8px}.event-head .label{font-weight:590}.event-head time{margin-left:auto;font-size:11px;color:#9eaaa0}.event details summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none}.event details summary::-webkit-details-marker{display:none}.event pre,.event .event-desc{white-space:pre-wrap;overflow-wrap:anywhere;margin:9px 0 1px 24px;background:#f7f9f7;border-radius:7px;padding:10px;font-size:11px;line-height:1.65}.event .event-desc{background:transparent;padding:0}.event .icon{height:14px;width:14px}.demo{margin-top:32px;border-top:1px solid var(--line);padding-top:17px}.demo .demo-title{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#9da79e}.demo-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.demo-actions button{font-size:12px;color:#42654b;border:1px solid #d9e3da;border-radius:8px;padding:9px 12px}.demo-actions button:hover{background:var(--green-light)}.demo .note{font-size:11px;color:#9aa59b;margin:8px 0 0}.empty{color:#8a978c;font-size:13px;padding:17px 0}.scrim{display:none}.searchmodal{position:fixed;inset:0;background:#1a2c215c;z-index:50;display:flex;justify-content:center;align-items:flex-start;padding:12vh 15px}.searchbox{background:white;border-radius:14px;padding:16px;width:min(570px,100%);box-shadow:0 18px 48px #19291d29}.searchbox input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px}.searchresult{display:flex;align-items:center;gap:11px;width:100%;padding:12px 8px;text-align:left;border-radius:8px}.searchresult small{font-size:10px;text-transform:uppercase;color:#a0aa9f;margin-left:auto}
+@media(max-width:1080px){.sidebar{position:fixed;top:0;left:0;bottom:0;width:min(320px,88vw);flex:0 0 auto;transform:translateX(-103%);transition:transform .2s cubic-bezier(.22,.8,.3,1);box-shadow:none}.sidebar.open{transform:translateX(0);box-shadow:10px 0 35px #1d2f2420}.scrim.visible{display:block;position:fixed;inset:0;background:#15251a6b;z-index:25}.mobile-menu{display:flex}.topbar{padding:0 20px}}
+@media(max-width:560px){.topbar{height:57px;flex-basis:57px;padding:0 13px}.topbar h1{font-size:14px}.top-status{font-size:11px}.messages{padding:28px 17px 28px;gap:25px}.message.user{max-width:89%;font-size:14px}.compose-wrap{padding:10px 10px max(12px,env(safe-area-inset-bottom))}.composer{border-radius:17px}.page{padding:25px 17px 70px}.page h2{font-size:22px}.goalhead{padding:19px 17px 12px}.goalhead h2{font-size:21px}.goalcontent{padding:4px 17px 75px}.goalrow{padding:15px 0}.goalmeta{gap:8px}.sidebar .brand{padding-top:max(24px,env(safe-area-inset-top))}}
+@media(prefers-reduced-motion:reduce){.signal.working,.goal-icon.working,.typing i{animation:none}.sidebar{transition:none}}
+</style>
+</head>
+<body>
+<svg aria-hidden="true" style="width:0;height:0;position:absolute;overflow:hidden"><defs>
+<symbol id="chat" viewBox="0 0 24 24"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 9.2 9.2 0 0 1-4.6-1.2L3 20l1.4-4.6A8.5 8.5 0 1 1 21 11.5z"/></symbol>
+<symbol id="target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+<symbol id="plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+<symbol id="search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/></symbol>
+<symbol id="folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v11H3z"/></symbol>
+<symbol id="chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
+<symbol id="menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+<symbol id="arrow" viewBox="0 0 24 24"><path d="M12 20V4m-6 6 6-6 6 6"/></symbol>
+<symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="brain" viewBox="0 0 24 24"><path d="M12 7c-2-4-8-2-8 2a4 4 0 0 0 0 6c-1 4 4 6 7 3V6m1 1c2-4 8-2 8 2a4 4 0 0 1 0 6c1 4-4 6-7 3V6"/></symbol>
+<symbol id="wrench" viewBox="0 0 24 24"><path d="M14 4a6 6 0 0 0-6 8l-5 5a2 2 0 0 0 3 3l5-5a6 6 0 0 0 8-6l-4 3-3-3 2-5z"/></symbol>
+<symbol id="book" viewBox="0 0 24 24"><path d="M12 6C9 4 5 4 3 5v13c3-1 7-1 9 1 2-2 6-2 9-1V5c-2-1-6-1-9 1zm0 0v13"/></symbol>
+<symbol id="x" viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></symbol>
+</defs></svg>
+<div class="app">
+  <aside class="sidebar" id="sidebar" aria-label="Sidebar">
+    <div class="brand"><span class="logotype"><span class="logomark">◈</span> PhunBot</span><button class="icon-button" aria-label="Search" onclick="openSearch()"><svg class="icon"><use href="#search"/></svg></button></div>
+    <nav class="navigation"><button class="navlink" onclick="newChat()"><svg class="icon"><use href="#plus"/></svg>New conversation</button><button class="navlink" id="goalsnav" onclick="showGoals('all')"><svg class="icon"><use href="#target"/></svg>Goals<span class="nav-count" id="navcount"></span></button></nav>
+    <div class="side-scroll"><div class="navheading">Folders</div><div id="folders"></div><div class="navheading">Recent conversations</div><div id="recents"></div></div>
+    <div class="side-foot">PhunBot · Interactive prototype</div>
+  </aside>
+  <div class="scrim" id="scrim" onclick="closeSidebar()"></div>
+  <main>
+    <header class="topbar"><button class="icon-button mobile-menu" onclick="openSidebar()" aria-label="Open menu"><svg class="icon"><use href="#menu"/></svg></button><div class="title-group"><h1 id="viewtitle"></h1></div><div class="top-status" id="headstatus"></div></header>
+    <section class="view" id="chatview"><div class="scroll" id="chatscroll"><div class="messages" id="messages"></div></div><div class="compose-wrap"><form class="composer" id="composer"><textarea rows="2" id="composeinput" aria-label="Message PhunBot" placeholder="Message PhunBot..."></textarea><div class="controls"><button type="button" class="icon-button subtle-plus" aria-label="Attach"> <svg class="icon"><use href="#plus"/></svg></button><button class="send" type="submit" aria-label="Send message"><svg class="icon"><use href="#arrow"/></svg></button></div></form></div></section>
+    <section class="view" id="goalsview" hidden><div class="scroll"><div class="page goalspage"><div class="filters" id="filters"></div><div id="goallist"></div></div></div></section>
+    <section class="view" id="detailview" hidden><div class="goalhead"><button class="back" onclick="showGoals()"><svg class="icon" style="width:12px;height:12px;transform:rotate(180deg)"><use href="#chevron"/></svg> All goals</button><h2 id="goalheading"></h2><div id="goalmeta" class="goalmeta"></div></div><div id="goalcontent" class="goalcontent"></div></section>
+  </main>
+</div>
+<div class="searchmodal" id="searchmodal" hidden onclick="if(event.target===this)closeSearch()"><div class="searchbox"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:13px"><strong>Search</strong><button aria-label="Close search" class="icon-button" onclick="closeSearch()"><svg class="icon"><use href="#x"/></svg></button></div><input id="searchinput" placeholder="Search conversations and goals" oninput="searchNow()"><div id="searchresults" style="padding-top:10px"></div></div></div>
+<script>
+// Prototype-only in-memory scenarios. Does not connect to any external service.
+const $=id=>document.getElementById(id);
+const ico=(id,extra='')=>`<svg class="icon ${extra}" aria-hidden="true"><use href="#${id}"></use></svg>`;
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let page='chat',chatId='minecraft',goalId='minecraft',filter='all';
+const opened=new Set();const folded=new Set();
+const chats=[
+ {id:'minecraft',name:'Server troubleshooting',folder:'Unraid',unread:true,history:[
+ {kind:'user',text:'My Minecraft server works on the LAN but nobody outside can connect. Diagnose the problem and restore external access.'},
+ {kind:'assistant',text:'The proxy responds locally, but external connection attempts are not reaching the host. I found a missing inbound rule in this example.\n\nMay I allow inbound TCP 25565 to the Minecraft proxy? This would make the service reachable from the internet.'}
+ ]},
+ {id:'backups',name:'Off-site backups',folder:'Unraid',unread:true,history:[
+ {kind:'user',text:'Set up encrypted, scheduled off-site backups using a destination I approve.'},
+ {kind:'assistant',text:'Which off-site destination should I use? I won’t transmit backup data or incur storage costs without your choice.'}
+ ]},
+ {id:'nextcloud',name:'Nextcloud task sync',folder:'Unraid',unread:false,history:[
+ {kind:'user',text:'Restore reliable synchronization of my Nextcloud Tasks.'}
+ ]},
+ {id:'mph',name:'MPH program planning',folder:'',unread:false,history:[
+ {kind:'user',text:'Compare affordable, accredited online MPH programs and recommend the strongest options.'}
+ ]},
+ {id:'agent',name:'Design personal agent harness',folder:'',unread:true,history:[{kind:'user',text:'Explain the five primitives of PhunBot.'},{kind:'assistant',text:'PhunBot has five primitives: Cognition, Memory, Goals, Workflows, and Tools.'}]},
+ {id:'mcp',name:'Define MCP',folder:'',unread:false,history:[{kind:'user',text:'Define MCP.'},{kind:'assistant',text:'MCP, or Model Context Protocol, standardizes how AI applications access external tools and resources.'}]},
+ {id:'it',name:'IT Powerscaling Explained',folder:'',unread:false,history:[{kind:'user',text:'What is the highest level of powerscaling?'},{kind:'assistant',text:'There is no universally agreed maximum; power-scaling tiers depend on the fictional framework.'}]}
+];
+const ev=(kind,label,detail='',time='Now')=>({kind,label,detail,time});
+const goals=[
+ {id:'minecraft',chat:'minecraft',title:'Restore external Minecraft connectivity so a player outside the network can join.',status:'blocked',block:'approval',stage:0,children:[
+  {title:'Confirm that the proxy responds locally',status:'completed',events:[ev('tool','Read AMP proxy status','amp_get_instance_status → Running','09:41'),ev('verification','Local proxy connection verified','Local client handshake succeeded.','09:42')]},
+  {title:'Locate the inbound connection failure',status:'completed',events:[ev('memory','Retrieved network configuration notes','Prior observations of public port forwarding and LAN traffic.','09:43'),ev('reason','Reasoning summary','LAN works; external attempts do not reach the host. Inspect upstream forwarding and filtering.','09:44'),ev('tool','Inspect inbound traffic','No packets observed during external probe.','09:45'),ev('verification','Failure point identified','This demo assumes a missing ingress rule was found.','09:46')]},
+  {title:'Apply an authorized inbound rule',status:'blocked',events:[ev('tool','Inspect firewall configuration','No matching inbound TCP 25565 rule in this simulated environment.','09:47'),ev('system','Awaiting authorization','Requested in the conversation. No change made.','09:48')]},
+  {title:'Verify an actual external player can join',status:'queued',events:[]}
+ ],finish:'Done. I applied the approved inbound rule and verified that an external player could join the Minecraft proxy. (Simulated result.)'},
+ {id:'backups',chat:'backups',title:'Configure encrypted, scheduled off-site backups to an approved destination and verify restoration.',status:'blocked',block:'information',stage:0,children:[
+  {title:'Review local backup requirements',status:'completed',events:[ev('memory','Retrieved backup preferences','Encryption and scheduled execution required.')]},
+  {title:'Identify an approved off-site destination',status:'blocked',events:[ev('system','Awaiting destination','Question sent in Off-site backups conversation.')]},
+  {title:'Configure encrypted scheduled backups',status:'queued',events:[]},
+  {title:'Verify both backup and restoration',status:'queued',events:[]}
+ ],finish:'Done. Encrypted scheduled backups were configured and a backup and restore test both passed. (Simulated result.)'},
+ {id:'nextcloud',chat:'nextcloud',title:'Restore reliable synchronization of Nextcloud Tasks and verify that changes sync successfully.',status:'waiting',block:'external',stage:0,children:[
+  {title:'Identify the synchronization failure',status:'completed',events:[ev('tool','Check CalDAV endpoint','HTTP 503 Service Unavailable','08:13')]},
+  {title:'Wait for the service to recover',status:'waiting',events:[ev('system','Service unavailable','The agent will retry automatically.')]},
+  {title:'Verify changes sync in both directions',status:'queued',events:[]}
+ ],finish:'Done. Nextcloud recovered and a round-trip task sync passed. (Simulated result.)'},
+ {id:'mph',chat:'mph',title:'Compare affordable accredited online MPH programs and recommend suitable options.',status:'working',stage:0,children:[
+  {title:'Identify accredited online options',status:'completed',events:[ev('tool','Research school accreditation','Sample results collected.')]},
+  {title:'Compare tuition, schedules and eligibility',status:'working',events:[ev('reason','Reasoning summary','Cross-check program costs and the timeline before producing a recommendation.')]} ,
+  {title:'Deliver a supported recommendation',status:'queued',events:[]}
+ ],finish:'Done. I compared the qualifying programs and prepared a recommendation with tuition and accreditation details. (Simulated result.)'},
+ {id:'agent',chat:'agent',title:'Explain the five fundamental primitives of PhunBot.',status:'completed',children:[{title:'Provide a concise explanation',status:'completed',events:[ev('verification','Explanation delivered')]}]},
+ {id:'mcp',chat:'mcp',title:'Explain what MCP is.',status:'completed',children:[{title:'Explain the protocol',status:'completed',events:[ev('verification','Definition delivered')]}]},
+ {id:'it',chat:'it',title:'Explain the highest levels of fictional power scaling.',status:'completed',children:[{title:'Explain competing tier systems',status:'completed',events:[ev('verification','Response delivered')]}]}
+];
+const getChat=id=>chats.find(c=>c.id===id);const getGoal=id=>goals.find(g=>g.id===id);
+function activeGoals(chat){return goals.filter(g=>g.chat===chat && g.status==='working');}
+function statusLabel(g){return ({working:'Working',blocked:'Needs you',waiting:'Waiting',completed:'Completed',queued:'Queued',paused:'Paused',cancelled:'Cancelled'})[g.status]||g.status;}
+function animationPhase(duration,stagger=0){return `style="animation-delay:-${((performance.now()-stagger)%duration+duration)%duration}ms"`;}
+function sig(kind){if(kind==='working')return `<i class="signal working" title="Goal working" ${animationPhase(1250)}></i>`;if(kind==='blocked')return '<i class="signal blocked" title="Needs your response">!</i>';if(kind==='waiting')return `<span class="signal waiting" title="Waiting for external service">${ico('clock')}</span>`;return '<i class="signal unread" title="Unread response"></i>';}
+function childIcon(status){return `<span class="goal-icon ${esc(status)}" ${status==='working'?animationPhase(1500):''}>${status==='completed'?ico('check'):status==='waiting'?ico('clock'):''}</span>`;}
+function view(name){page=name;['chat','goals','detail'].forEach(x=>$(x+'view').hidden=x!==name);$('goalsnav').classList.toggle('active',name==='goals'||name==='detail');}
+function renderSidebar(){
+ const gs=goals.filter(g=>g.status==='working').length;const need=goals.filter(g=>g.status==='blocked').length;
+ $('navcount').innerHTML=`${gs?sig('working')+'<span>'+gs+'</span>':''}${need?sig('blocked')+'<span>'+need+'</span>':''}`;
+ const item=c=>`<button class="chatlink ${c.id===chatId&&page==='chat'?'selected':''} ${c.unread?'unread':''}" onclick="showChat('${c.id}')">${ico('chat','bubble-icon')}<span class="name">${esc(c.name)}</span><span class="signals">${c.unread?sig('unread'):''}${goals.filter(g=>g.chat===c.id&&g.status==='working').length?sig('working'):''}${goals.filter(g=>g.chat===c.id&&g.status==='blocked').length?sig('blocked'):''}</span></button>`;
+ const folders=[...new Set(chats.map(c=>c.folder).filter(Boolean))];
+ $('folders').innerHTML=folders.map(name=>`<button class="folder ${folded.has(name)?'closed':''}" onclick="toggleFolder('${esc(name)}')">${ico('folder')}${esc(name)}${ico('chevron','folder-arrow')}</button>${folded.has(name)?'':`<div class="folder-group">${chats.filter(c=>c.folder===name).map(item).join('')}</div>`}`).join('');
+ $('recents').innerHTML=chats.filter(c=>!c.folder).map(item).join('');
+}
+function toggleFolder(name){folded.has(name)?folded.delete(name):folded.add(name);renderSidebar();}
+function renderMessage(m){if(m.kind==='user')return `<div class="message user">${esc(m.text)}</div>`;
+ const content=esc(m.text).replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>');
+ return `<div class="message assistant"><p>${content}</p></div>`;
+}
+function showChat(id){const c=getChat(id);if(!c)return;chatId=id;c.unread=false;view('chat');$('viewtitle').textContent=c.name;const active=activeGoals(id);$('headstatus').innerHTML=active.length?`${sig('working')} Working`:'';
+ $('messages').innerHTML=c.history.map(renderMessage).join('')+(active.length?`<div class="typing" aria-label="PhunBot is working"><i ${animationPhase(1100)}></i><i ${animationPhase(1100,150)}></i><i ${animationPhase(1100,300)}></i></div>`:'');renderSidebar();closeSidebar();requestAnimationFrame(()=>$('chatscroll').scrollTop=$('chatscroll').scrollHeight);}
+function showGoals(newfilter){filter=newfilter||filter||'all';view('goals');$('viewtitle').textContent='Goals';$('headstatus').innerHTML='';const options=[['all','All'],['working','Working'],['blocked','Needs you'],['waiting','Waiting'],['completed','Completed'],['paused','Paused']];$('filters').innerHTML=options.map(([k,v])=>`<button class="filter ${filter===k?'current':''}" onclick="showGoals('${k}')">${v}</button>`).join('');
+ let list=goals.filter(g=>filter==='all'||g.status===filter);$('goallist').innerHTML=list.map(g=>`<button class="goalrow" onclick="showGoal('${g.id}')">${childIcon(g.status)}<span style="flex:1;min-width:0"><span class="primary-text">${esc(g.title)}</span><span class="minor" style="display:block">${esc(getChat(g.chat)?.name||'Autonomous')} · ${esc(statusLabel(g))}</span></span>${ico('chevron','right')}</button>`).join('')||'<p class="empty">No goals in this view.</p>';renderSidebar();closeSidebar();}
+function showGoal(id){const g=getGoal(id);if(!g)return;goalId=id;view('detail');$('viewtitle').textContent='Goals';$('headstatus').innerHTML='';$('goalheading').textContent=g.title;
+ $('goalmeta').innerHTML=`<span class="status ${g.status}">${esc(statusLabel(g))}</span><span>·</span><button onclick="showChat('${g.chat}')">${esc(getChat(g.chat)?.name||'Autonomous')}</button>`;
+ let strip='';if(g.status==='blocked')strip=`<div class="wait-strip">${ico('chat')}<span>${g.block==='approval'?'Waiting for your approval':'Waiting for your answer'} in <button onclick="showChat('${g.chat}')">${esc(getChat(g.chat).name)}</button></span></div>`;
+ if(g.status==='waiting')strip=`<div class="wait-strip">${ico('clock')}<span>Nextcloud returned HTTP 503. Retrying automatically; no action needed.</span></div>`;
+ const children=g.children.map((ch,i)=>{const key=`${g.id}-${i}`,isOpen=opened.has(key);return `<div class="child"><div class="childtop">${childIcon(ch.status)}<div style="flex:1;min-width:0"><div class="childtitle">${esc(ch.title)}</div><div class="childstatus">${esc(statusLabel(ch))}</div></div></div>${ch.events.length?`<button class="details-toggle" aria-expanded="${isOpen}" onclick="toggleEvents('${key}')">${ico('chevron')} ${isOpen?'Hide':'Show'} execution (${ch.events.length})</button>${isOpen?`<div class="events">${ch.events.map(e=>renderEvent(e)).join('')}</div>`:''}`:''}</div>`}).join('');
+ const now=g.children.find(c=>c.status==='working');const nowHTML=now?`<section class="gsection"><h3>Working on</h3><div class="childtitle">${esc(now.title)}</div></section>`:'';
+ $('goalcontent').innerHTML=`${strip}${nowHTML}<section class="gsection"><h3>Child goals</h3>${children}</section>${demoHTML(g)}`;renderSidebar();closeSidebar();}
+function renderEvent(e){const icons={tool:'wrench',reason:'brain',memory:'book',verification:'check',system:'clock'};const label={tool:'Tool call',reason:'Reasoning summary',memory:'Memory',verification:'Verification',system:'Event'}[e.kind]||'Event';const expandable=['tool','reason','memory'].includes(e.kind);
+ if(expandable)return `<div class="event"><details><summary>${ico(icons[e.kind])}<span class="label">${label}: ${esc(e.label)}</span><time>${esc(e.time)}</time></summary><div class="event-desc">${esc(e.detail)}</div></details></div>`;
+ return `<div class="event"><div class="event-head">${ico(icons[e.kind]||'clock')}<span class="label">${esc(e.label)}</span><time>${esc(e.time)}</time></div>${e.detail?`<div class="event-desc">${esc(e.detail)}</div>`:''}</div>`;
+}
+function toggleEvents(key){opened.has(key)?opened.delete(key):opened.add(key);showGoal(goalId);}
+function demoHTML(g){let controls=[];
+ if(g.id==='minecraft'&&g.status==='working'){if(g.stage===1)controls.push(['Simulate rule applied','applyMinecraft()']);if(g.stage===2)controls.push(['Simulate successful external join','completeGoal("minecraft")']);if(g.stage===3)controls.push(['Simulate no alternative found','noAlternative()']);}
+ if(g.id==='backups'&&g.status==='working'){if(g.stage===1)controls.push(['Simulate backup configuration','configureBackup()']);if(g.stage===2)controls.push(['Simulate verified restoration','completeGoal("backups")']);}
+ if(g.id==='nextcloud'&&g.status==='waiting')controls.push(['Simulate service recovery','recoverNextcloud()']);
+ if(g.id==='nextcloud'&&g.status==='working')controls.push(['Simulate successful sync','completeGoal("nextcloud")']);
+ if(g.id==='mph'&&g.status==='working')controls.push(['Simulate recommendation ready','completeGoal("mph")']);
+ if(!controls.length)return '';
+ return `<div class="demo"><div class="demo-title">Demo controls</div><div class="demo-actions">${controls.map(([label,fn])=>`<button onclick='${fn}'>${esc(label)}</button>`).join('')}</div><p class="note">These controls simulate work that would happen autonomously.</p></div>`;
+}
+function eventTo(child,kind,label,detail){child.events.push(ev(kind,label,detail));}
+function completeGoal(id){const g=getGoal(id);if(!g||g.status!=='working')return;g.status='completed';g.stage=99;g.children.forEach(c=>{if(c.status!=='completed'){c.status='completed';eventTo(c,'verification','Outcome verified','Verified successfully (simulated).')}});const c=getChat(g.chat);c.history.push({kind:'assistant',text:g.finish||'Done. The goal was verified. (Simulated result.)'});c.unread=!(page==='chat'&&chatId===c.id);refresh();}
+function answerApproval(ok){const g=getGoal('minecraft'),c=getChat('minecraft');if(g.status!=='blocked'||g.block!=='approval')return;
+ g.status='working';g.block=null;
+ if(ok){g.stage=1;g.children[2].status='working';eventTo(g.children[2],'system','Approval recorded','Explicit user authorization for inbound TCP 25565.');}
+ else{g.stage=3;g.children[2].status='completed';eventTo(g.children[2],'system','Approval declined','The firewall configuration was not changed.');g.children.splice(3,0,{title:'Find a way to restore access without changing firewall rules',status:'working',events:[ev('reason','Reasoning summary','Investigate existing authorized tunnels or other approved paths.')]});c.history.push({kind:'assistant',text:'Understood. I won’t change the firewall. I’ll look for a permitted alternative.'});}
+ }
+function applyMinecraft(){const g=getGoal('minecraft');if(g.stage!==1)return;g.children[2].status='completed';eventTo(g.children[2],'tool','Apply approved inbound rule','Firewall rule applied (simulated).');g.children[g.children.length-1].status='working';g.stage=2;refresh();}
+function noAlternative(){const g=getGoal('minecraft');if(g.stage!==3)return;const alt=g.children[3];alt.status='completed';eventTo(alt,'verification','No authorized alternative found','No available preapproved tunnel or alternative path found in this demo.');g.status='blocked';g.block='information';g.stage=4;const c=getChat(g.chat);c.history.push({kind:'assistant',text:'I couldn’t find an alternative that avoids opening an inbound port. Should I leave this goal on hold, or would you like to reconsider the firewall change?'});c.unread=!(page==='chat'&&chatId===c.id);refresh();}
+function configureBackup(){const g=getGoal('backups');if(g.stage!==1)return;g.stage=2;g.children[2].status='completed';eventTo(g.children[2],'tool','Configure encrypted backups',`Destination: ${g.destination}; scheduled job configured (simulated).`);g.children[3].status='working';refresh();}
+function recoverNextcloud(){const g=getGoal('nextcloud');if(g.status!=='waiting')return;g.status='working';g.block=null;g.children[1].status='completed';eventTo(g.children[1],'tool','CalDAV probe recovered','HTTP 200 (simulated).');g.children[2].status='working';refresh();}
+function refresh(){if(page==='chat')showChat(chatId);else if(page==='goals')showGoals(filter);else showGoal(goalId);}
+function goalMessageAction(g,c,clean){
+ const lower=clean.toLowerCase();
+ const stop=/^(pause|hold|stop)( this| the)?( goal| work)?[.! ]*$/i.test(clean.trim());
+ const cancel=/^(cancel|abandon)( this| the)?( goal| work)?[.! ]*$/i.test(clean.trim());
+ const resume=/^(resume|continue|restart)( this| the)?( goal| work)?[.! ]*$/i.test(clean.trim());
+ // A direction change is different from an independent new request.
+ const redirect=/^(wait|hold on|actually|instead|before you|don['’]t|do not)\b/i.test(clean);
+ if(cancel){g.children.forEach(child=>{if(child.status==='working'||child.status==='blocked'||child.status==='paused')child.status='cancelled';});g.status='cancelled';g.block=null;c.history.push({kind:'assistant',text:'I’ve cancelled that goal. I won’t continue work on it.'});return true;}
+ if(stop){g.children.forEach(child=>{if(child.status==='working')child.status='paused';});g.status='paused';g.block=null;c.history.push({kind:'assistant',text:'Paused. I’ll keep the goal and progress so we can resume later.'});return true;}
+ if(resume && g.status==='paused'){
+   g.status='working';g.block=null;
+   const pausedChild=g.children.find(x=>x.status==='paused');if(pausedChild)pausedChild.status='working';
+   c.history.push({kind:'assistant',text:'Resuming the existing goal.'});return true;
+ }
+ if(redirect && (g.status==='working'||g.status==='blocked')){
+   // The original outcome is unchanged; the child-goal plan changes.
+   const current=g.children.find(x=>x.status==='working'||x.status==='blocked');if(current){current.status='cancelled';eventTo(current,'system','Plan superseded',clean);}
+   const title=/router/i.test(clean)?'Check router forwarding before any firewall changes':'Reevaluate the plan using your new instruction';
+   g.children.splice(Math.max(0,g.children.length-1),0,{title,status:'working',events:[ev('system','User redirected execution',clean)]});
+   g.status='working';g.block=null;g.stage=5;
+   c.history.push({kind:'assistant',text:g.id==='minecraft'&&g.stage===5?'Understood. I’ll check the router first and won’t make additional firewall changes.':'Understood. I’ll incorporate that direction into the goal.'});return true;
+ }
+ return false;
+}
+function sendMessage(text){const c=getChat(chatId);if(!c)return;const clean=text.trim();if(!clean)return;c.history.push({kind:'user',text:clean});if(c.name==='New conversation')c.name=clean.slice(0,40);
+ const current=goals.find(x=>x.chat===c.id && ['working','blocked','paused'].includes(x.status));
+ if(current && goalMessageAction(current,c,clean)){refresh();return;}
+ const g=goals.find(x=>x.chat===c.id && x.status==='blocked');
+ if(g?.id==='backups' && g.block==='information'){
+   g.destination=clean;g.block=null;g.status='working';g.stage=1;g.children[1].status='completed';eventTo(g.children[1],'system','User supplied destination',clean);g.children[2].status='working';c.history.push({kind:'assistant',text:`Got it. I’ll use ${clean} as the proposed backup destination and proceed with configuration. I’ll still request any necessary authorization before consequential operations.`});
+ }else if(g?.id==='minecraft' && g.block==='approval'){
+   const yes=/^(yes|yes,? go ahead|i approve|approve|authorized|you may|go ahead|please do|sure)[.! ]*(?:.*)?$/i.test(clean);
+   const no=/^(no|decline|do not|don['’]t|not authorized|no thanks)[.! ]*(?:.*)?$/i.test(clean);
+   if(yes){answerApproval(true);c.history.push({kind:'assistant',text:'Authorized. I’ll apply the rule, then test external connectivity.'});}
+   else if(no){answerApproval(false);}
+   else c.history.push({kind:'assistant',text:'Just to confirm: may I change the inbound TCP 25565 firewall rule? Please answer yes or no.'});
+ }else if(g?.id==='minecraft' && g.stage===4){
+   if(/reconsider|approve|firewall|try again/i.test(clean)){g.status='blocked';g.block='approval';g.stage=0;c.history.push({kind:'assistant',text:'Would you authorize the inbound TCP 25565 firewall change?'});}else{g.block='information';c.history.push({kind:'assistant',text:'I’ll leave the goal waiting for further direction.'});}
+ }else{
+   const id='new'+Date.now();goals.unshift({id,chat:c.id,title:clean,status:'working',stage:0,children:[{title:'Pursue the requested outcome',status:'working',events:[]}],finish:'Done. The requested goal was completed. (Simulated result.)'});
+ }
+ refresh();}
+$('composer').addEventListener('submit',e=>{e.preventDefault();const val=$('composeinput').value;if(!val.trim())return;$('composeinput').value='';sendMessage(val)});
+$('composeinput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('composer').requestSubmit();}});
+function newChat(){const id='chat'+Date.now();chats.unshift({id,name:'New conversation',folder:'',unread:false,history:[]});showChat(id);$('composeinput').focus();}
+function openSidebar(){$('sidebar').classList.add('open');$('scrim').classList.add('visible');document.body.classList.add('drawer-open');}
+function closeSidebar(){$('sidebar').classList.remove('open');$('scrim').classList.remove('visible');document.body.classList.remove('drawer-open');}
+function openSearch(){$('searchmodal').hidden=false;$('searchinput').value='';searchNow();$('searchinput').focus();closeSidebar();}
+function closeSearch(){$('searchmodal').hidden=true;}
+function searchNow(){const q=$('searchinput').value.toLowerCase();const matches=[...chats.filter(c=>c.name.toLowerCase().includes(q)||c.history.some(m=>m.text.toLowerCase().includes(q))).map(c=>({kind:'chat',id:c.id,name:c.name})),...goals.filter(g=>g.title.toLowerCase().includes(q)).map(g=>({kind:'goal',id:g.id,name:g.title}))].slice(0,15);$('searchresults').innerHTML=matches.map(m=>`<button class="searchresult" onclick="closeSearch();${m.kind==='chat'?'showChat':'showGoal'}('${m.id}')">${ico(m.kind==='chat'?'chat':'target')}<span>${esc(m.name)}</span><small>${m.kind==='chat'?'Conversation':'Goal'}</small></button>`).join('')||'<p class="empty">No matches.</p>';}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeSearch();closeSidebar()}if((e.ctrlKey||e.metaKey)&&e.key==='k'){e.preventDefault();openSearch()}});
+showChat('minecraft');
+</script></body></html>

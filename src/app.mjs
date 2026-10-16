@@ -51,6 +51,8 @@ import { GoalQueue } from "./goal-queue.mjs";
 import { outcomeContract } from "./outcomes.mjs";
 import { blockerKindSchema, verificationSchema } from "./tool-schemas.mjs";
 import { summarizeMcpConfig } from "./mcp-observability.mjs";
+import { FolderStore } from "./ui-folders.mjs";
+import { compactHistory, goalReadModels } from "./ui-read-models.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicAssets = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
@@ -213,6 +215,7 @@ export async function start({
     inFlight = new Set(),
     admissions = new Admissions();
   const catalogFile = root + "/state/conversations.json";
+  const folderStore = new FolderStore(root);
   let catalog = [];
   if (fs.existsSync(catalogFile)) {
     try {
@@ -239,7 +242,21 @@ export async function start({
       }
     }
   }
+  // Adopt existing server catalog folders without copying browser-local state.
+  for (const row of catalog) if (row.folder && !row.folderId && row.folder.length <= 80 && !/[\u0000-\u001f\u007f]/.test(row.folder)) {
+    const name = row.folder.trim();
+    if (name) row.folderId = (folderStore.list().find(folder => folder.name.toLowerCase() === name.toLowerCase()) || folderStore.create({name})).id;
+  }
   const save = () => atomic(catalogFile, catalog);
+  const canonicalManager = row => runtimes.get(row.id)?.session.sessionManager ||
+    (row.sessionFile && fs.existsSync(row.sessionFile) ? SessionManager.open(row.sessionFile) : null);
+  const latestResponseId = row => {
+    const entries = canonicalManager(row)?.getBranch() || [];
+    const latest = entries.findLast(entry => entry.type === "message" && entry.message.role === "assistant" &&
+      (typeof entry.message.content === "string" ? entry.message.content.trim() :
+        (entry.message.content || []).some(part => part.type === "text" && part.text?.trim())));
+    return latest?.id || null;
+  };
   save();
   async function open(row) {
     if (runtimes.has(row.id)) {
@@ -1287,6 +1304,8 @@ export async function start({
           200,
           catalog.map((row) => ({
             ...row,
+            folder: row.folderId ? (folderStore.get(row.folderId)?.name || "") : (row.folder || ""),
+            unread: Boolean(latestResponseId(row) && latestResponseId(row) !== row.readResponseId),
             busy:
               admissions.pending.has(row.id) ||
               inFlight.has(row.id) ||
@@ -1298,10 +1317,13 @@ export async function start({
       if (u.pathname === "/api/sessions" && req.method === "POST") {
         const rawTitle = typeof b.title === "string" ? b.title : "";
         const rawFolder = typeof b.folder === "string" ? b.folder : "";
+        if (b.folderId !== undefined && b.folderId !== null && !folderStore.get(b.folderId))
+          throw Object.assign(new Error("Folder not found"), { statusCode: 400 });
         const row = {
           id: crypto.randomUUID(),
           title: rawTitle.slice(0, 256) || "New conversation",
-          folder: rawFolder.slice(0, 128),
+          folder: b.folderId ? folderStore.get(b.folderId).name : rawFolder.slice(0, 128),
+          folderId: b.folderId || null,
           model: b.model || policy.roles.executor,
           execution: "idle",
           created: new Date().toISOString(),
@@ -1329,6 +1351,60 @@ export async function start({
               api: m.api,
             })),
         );
+      }
+      if (u.pathname === "/api/search" && req.method === "GET") {
+        const query = (u.searchParams.get("q") || "").trim().toLowerCase();
+        if (query.length > 200) return json(res, 400, { error: "Search is limited to 200 characters" });
+        const matches = [];
+        for (const row of catalog) {
+          let matched = !query || (row.title || "").toLowerCase().includes(query);
+          if (!matched) {
+            const manager = runtimes.get(row.id)?.session.sessionManager ||
+              (row.sessionFile && fs.existsSync(row.sessionFile) ? SessionManager.open(row.sessionFile) : null);
+            matched = Boolean(manager && conversationMessages({ sessionManager: manager }).some((message) => {
+              if (!["user", "assistant"].includes(message.role)) return false;
+              const content = typeof message.content === "string" ? message.content :
+                (message.content || []).filter((part) => part.type === "text").map((part) => part.text || "").join("\n");
+              return content.toLowerCase().includes(query);
+            }));
+          }
+          if (matched) matches.push({ kind: "chat", id: row.id, name: row.title || "Untitled conversation" });
+        }
+        const goals = await tasks().nc.list();
+        for (const goal of goals) if (goal.kind === "goal" && (!query || (goal.title || "").toLowerCase().includes(query)))
+          matches.push({ kind: "goal", id: goal.id, name: goal.title });
+        return json(res, 200, matches.slice(0, 15));
+      }
+      if (u.pathname === "/api/folders" && req.method === "GET")
+        return json(res, 200, folderStore.list());
+      if (u.pathname === "/api/folders" && req.method === "POST")
+        return json(res, 201, folderStore.create(b));
+      const folderMatch = u.pathname.match(new RegExp("^/api/folders/([^/]+)$"));
+      if (folderMatch) {
+        if (req.method === "PATCH") return json(res, 200, folderStore.update(folderMatch[1], b));
+        if (req.method === "DELETE")
+          return json(res, 200, folderStore.remove(folderMatch[1], {
+            sessionFolderIds: new Set(catalog.filter((row) => row.folderId).map((row) => row.folderId)),
+          }));
+      }
+      if (u.pathname === "/api/ui/goals" && req.method === "GET") {
+        const goals = await tasks().nc.list();
+        const live = new Map(goals.filter((goal) => goal.kind === "goal").map((goal) => {
+          const row = catalog.find((candidate) => candidate.id === goal.conversationId);
+          const exact = row?.goalId === goal.id;
+          return [goal.id, {
+            busy: exact && (admissions.pending.has(row.id) || inFlight.has(row.id) || runtimes.get(row.id)?.busy || false),
+            inFlight: exact && inFlight.has(row.id), error: exact ? runtimes.get(row.id)?.error || null : null,
+          }];
+        }));
+        return json(res, 200, goalReadModels({ goals, catalog, root, live, folders: folderStore.list(), criterionAccepted: (goal, criterion) => tasks().criterionAccepted(goal, criterion) }));
+      }
+      const historyMatch = u.pathname.match(new RegExp("^/api/ui/goals/([^/]+)/history$"));
+      if (historyMatch && req.method === "GET") {
+        const goal = (await tasks().nc.list()).find((item) => item.id === historyMatch[1] && item.kind === "goal");
+        if (!goal) return json(res, 404, { error: "Goal not found" });
+        const limit = Number(u.searchParams.get("limit") || 20);
+        return json(res, 200, compactHistory(root, goal.id, { limit, offset: Number(u.searchParams.get("offset") || 0), expand: u.searchParams.get("expand") === "1" }));
       }
       if (u.pathname === "/api/goals") {
         const c = tasks(),
@@ -1386,6 +1462,8 @@ export async function start({
         if (!row) return json(res, 404, { error: "Conversation not found" });
         const action = match[2];
         if (!action && req.method === "PATCH") {
+          if (b.folderId !== undefined && b.folderId !== null && !folderStore.get(b.folderId))
+            throw Object.assign(new Error("Folder not found"), { statusCode: 400 });
           if (b.model) admissions.assertIdle(row.id, inFlight, runtimes);
           if (b.model && runtimes.get(row.id)?.busy)
             throw Error("Cannot change model while running");
@@ -1409,10 +1487,22 @@ export async function start({
             );
             row.model = b.model;
           }
-          if (typeof b.folder === "string") row.folder = b.folder;
-          if (typeof b.title === "string") row.title = b.title;
+          if (b.folderId !== undefined) {
+            row.folderId = b.folderId;
+            row.folder = b.folderId ? folderStore.get(b.folderId).name : "";
+          } else if (typeof b.folder === "string") {
+            row.folder = b.folder.slice(0,128);
+            row.folderId = folderStore.list().find(folder => folder.name === row.folder)?.id || null;
+          }
+          if (typeof b.title === "string") row.title = b.title.slice(0,256) || "New conversation";
           save();
           return json(res, 200, row);
+        }
+        if (action === "read" && req.method === "POST") {
+          const latest = latestResponseId(row);
+          if (b.responseId !== latest) return json(res, 409, { error: "Conversation changed before read acknowledgement" });
+          if (row.readResponseId !== latest) { row.readResponseId = latest; save(); }
+          return json(res, 200, { ok: true });
         }
         if (action === "tools" && req.method === "GET") {
           const rt = await open(row);
@@ -1436,6 +1526,7 @@ export async function start({
               : [],
             busy: inFlight.has(row.id) || rt?.busy || false,
             execution: row.execution,
+            lastResponseId: latestResponseId(row),
             error: rt?.error || null,
           });
         }
@@ -1541,7 +1632,7 @@ export async function start({
       }
       return json(res, 404, { error: "Not found" });
     } catch (e) {
-      json(res, 400, { error: e.message });
+      json(res, e.statusCode || 400, { error: e.message });
     }
   });
   await new Promise((r) => server.listen(port, host, r));

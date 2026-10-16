@@ -1,0 +1,116 @@
+{
+  "baseCommit": "b05531a6135f4d60e8aefae80811dbd8042ffe57",
+  "sourceSha256": "0ab994e4362b6f2eefe39279f210864235fd4c4bf25898f5b4e17e271761ae56",
+  "prototypeSha256": "043ea81c9f0a7cb1082cf802cd1727117e02b7dc48632dcc8153f36eff6e44bd",
+  "runs": [
+    {
+      "name": "application",
+      "exitCode": 0,
+      "passed": 226,
+      "failed": 0
+    },
+    {
+      "name": "amp",
+      "exitCode": 0,
+      "passed": 35,
+      "failed": 0
+    },
+    {
+      "name": "amp-build",
+      "exitCode": 0
+    },
+    {
+      "name": "native-integration",
+      "exitCode": 0,
+      "passed": true,
+      "checks": {
+        "nativeProvider503BackoffAndSameGoalRecovery": true,
+        "delayedNativeResponseCancellationSurvivesRealRestart": true,
+        "nativeConsequentialToolDeniedBeforeEffect": true
+      },
+      "checkCount": 3
+    },
+    {
+      "name": "browser",
+      "exitCode": 0,
+      "passed": true,
+      "checks": [
+        "Desktop geometry matches original app/sidebar/messages/user/composer exactly",
+        "Live executing goal and blocked goals show separate truthful badges",
+        "Global goals show authoritative goals, separate acceptance criteria and collapsed activity",
+        "Execution history API expansion and nested event details survive polling",
+        "Goal selection survives refresh via URL, not browser goal storage",
+        "Mobile conversation geometry matches the original exactly at 390x844",
+        "Mobile drawer remains open through polling and closes on conversation selection",
+        "Search finds canonical message text, then navigates to its real conversation",
+        "Model selection writes the actual session model through the API",
+        "Folder create, move, rename, delete and membership persist across refresh",
+        "Canonical tool calls are inspectable and collapsed by default; provider thinking stays excluded",
+        "Attachment add/remove controls work",
+        "Actual HTTP admission and two simultaneous executing conversations/goals",
+        "Image payload reaches real admission checkpoint and canonical transcript rendering",
+        "Real cancellation transitions persistent goal state and global filter",
+        "Browser cannot bypass independent owner approval; exact-goal denial works",
+        "Real mobile touch context navigates drawer and conversation",
+        "Direct hash navigation updates the rendered view",
+        "A delayed real API response cannot overwrite a newer conversation selection",
+        "No browser JavaScript errors or unexpected console errors"
+      ],
+      "checkCount": 20
+    },
+    {
+      "name": "existing-browser",
+      "exitCode": 0,
+      "passed": true,
+      "checks": [
+        "Markdown heading and table",
+        "Code fence",
+        "Message copy",
+        "Code copy",
+        "Sanitized Markdown",
+        "Unboxed assistant text",
+        "Collapsible folders",
+        "Validation history hidden by default",
+        "Separate collapsible traces",
+        "Rename and folder movement",
+        "Provisional child status is not displayed as accepted verification",
+        "Blocked progress inspection",
+        "Independent owner approval instructions, no bearer approval button",
+        "Canonical history after reload",
+        "Empty folder creation",
+        "Exact goal cancellation",
+        "Ambiguous admitted response retries with the same request and goal after reload",
+        "Attachment control, durable admission and native image history",
+        "Narrow-screen navigation",
+        "Narrow viewport has no horizontal overflow"
+      ],
+      "checkCount": 20
+    },
+    {
+      "name": "static-ui",
+      "exitCode": 0,
+      "passed": true,
+      "checks": [
+        "Module imports",
+        "Authentication gate",
+        "Composer and control handlers",
+        "No automatic API calls before authentication",
+        "No ordinary bearer approval control"
+      ],
+      "checkCount": 5
+    },
+    {
+      "name": "targeted-clipboard-fallback",
+      "exitCode": 0,
+      "passed": true,
+      "checks": [
+        "Clipboard fallback invoked execCommand",
+        "Actual clipboard contains canonical assistant text",
+        "Temporary copy buffer removed"
+      ],
+      "checkCount": 3
+    }
+  ],
+  "productionChanged": false,
+  "scope": "Local source and controlled disposable fixtures; no live-provider, production Nextcloud or production AMP acceptance claim"
+}

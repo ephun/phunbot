@@ -1,0 +1,376 @@
+{
+  "chats": [
+    {
+      "id": "minecraft",
+      "name": "Server troubleshooting",
+      "folder": "Unraid",
+      "unread": false,
+      "history": [
+        {
+          "kind": "user",
+          "text": "My Minecraft server works on the LAN but nobody outside can connect. Diagnose the problem and restore external access."
+        },
+        {
+          "kind": "assistant",
+          "text": "The proxy responds locally, but external connection attempts are not reaching the host. I found a missing inbound rule in this example.\n\nMay I allow inbound TCP 25565 to the Minecraft proxy? This would make the service reachable from the internet."
+        }
+      ]
+    },
+    {
+      "id": "backups",
+      "name": "Off-site backups",
+      "folder": "Unraid",
+      "unread": true,
+      "history": [
+        {
+          "kind": "user",
+          "text": "Set up encrypted, scheduled off-site backups using a destination I approve."
+        },
+        {
+          "kind": "assistant",
+          "text": "Which off-site destination should I use? I won’t transmit backup data or incur storage costs without your choice."
+        }
+      ]
+    },
+    {
+      "id": "nextcloud",
+      "name": "Nextcloud task sync",
+      "folder": "Unraid",
+      "unread": false,
+      "history": [
+        {
+          "kind": "user",
+          "text": "Restore reliable synchronization of my Nextcloud Tasks."
+        }
+      ]
+    },
+    {
+      "id": "mph",
+      "name": "MPH program planning",
+      "folder": "",
+      "unread": false,
+      "history": [
+        {
+          "kind": "user",
+          "text": "Compare affordable, accredited online MPH programs and recommend the strongest options."
+        }
+      ]
+    },
+    {
+      "id": "agent",
+      "name": "Design personal agent harness",
+      "folder": "",
+      "unread": true,
+      "history": [
+        {
+          "kind": "user",
+          "text": "Explain the five primitives of PhunBot."
+        },
+        {
+          "kind": "assistant",
+          "text": "PhunBot has five primitives: Cognition, Memory, Goals, Workflows, and Tools."
+        }
+      ]
+    },
+    {
+      "id": "mcp",
+      "name": "Define MCP",
+      "folder": "",
+      "unread": false,
+      "history": [
+        {
+          "kind": "user",
+          "text": "Define MCP."
+        },
+        {
+          "kind": "assistant",
+          "text": "MCP, or Model Context Protocol, standardizes how AI applications access external tools and resources."
+        }
+      ]
+    },
+    {
+      "id": "it",
+      "name": "IT Powerscaling Explained",
+      "folder": "",
+      "unread": false,
+      "history": [
+        {
+          "kind": "user",
+          "text": "What is the highest level of powerscaling?"
+        },
+        {
+          "kind": "assistant",
+          "text": "There is no universally agreed maximum; power-scaling tiers depend on the fictional framework."
+        }
+      ]
+    }
+  ],
+  "goals": [
+    {
+      "id": "minecraft",
+      "chat": "minecraft",
+      "title": "Restore external Minecraft connectivity so a player outside the network can join.",
+      "status": "blocked",
+      "block": "approval",
+      "stage": 0,
+      "children": [
+        {
+          "title": "Confirm that the proxy responds locally",
+          "status": "completed",
+          "events": [
+            {
+              "kind": "tool",
+              "label": "Read AMP proxy status",
+              "detail": "amp_get_instance_status → Running",
+              "time": "09:41"
+            },
+            {
+              "kind": "verification",
+              "label": "Local proxy connection verified",
+              "detail": "Local client handshake succeeded.",
+              "time": "09:42"
+            }
+          ]
+        },
+        {
+          "title": "Locate the inbound connection failure",
+          "status": "completed",
+          "events": [
+            {
+              "kind": "memory",
+              "label": "Retrieved network configuration notes",
+              "detail": "Prior observations of public port forwarding and LAN traffic.",
+              "time": "09:43"
+            },
+            {
+              "kind": "reason",
+              "label": "Reasoning summary",
+              "detail": "LAN works; external attempts do not reach the host. Inspect upstream forwarding and filtering.",
+              "time": "09:44"
+            },
+            {
+              "kind": "tool",
+              "label": "Inspect inbound traffic",
+              "detail": "No packets observed during external probe.",
+              "time": "09:45"
+            },
+            {
+              "kind": "verification",
+              "label": "Failure point identified",
+              "detail": "This demo assumes a missing ingress rule was found.",
+              "time": "09:46"
+            }
+          ]
+        },
+        {
+          "title": "Apply an authorized inbound rule",
+          "status": "blocked",
+          "events": [
+            {
+              "kind": "tool",
+              "label": "Inspect firewall configuration",
+              "detail": "No matching inbound TCP 25565 rule in this simulated environment.",
+              "time": "09:47"
+            },
+            {
+              "kind": "system",
+              "label": "Awaiting authorization",
+              "detail": "Requested in the conversation. No change made.",
+              "time": "09:48"
+            }
+          ]
+        },
+        {
+          "title": "Verify an actual external player can join",
+          "status": "queued",
+          "events": []
+        }
+      ],
+      "finish": "Done. I applied the approved inbound rule and verified that an external player could join the Minecraft proxy. (Simulated result.)"
+    },
+    {
+      "id": "backups",
+      "chat": "backups",
+      "title": "Configure encrypted, scheduled off-site backups to an approved destination and verify restoration.",
+      "status": "blocked",
+      "block": "information",
+      "stage": 0,
+      "children": [
+        {
+          "title": "Review local backup requirements",
+          "status": "completed",
+          "events": [
+            {
+              "kind": "memory",
+              "label": "Retrieved backup preferences",
+              "detail": "Encryption and scheduled execution required.",
+              "time": "Now"
+            }
+          ]
+        },
+        {
+          "title": "Identify an approved off-site destination",
+          "status": "blocked",
+          "events": [
+            {
+              "kind": "system",
+              "label": "Awaiting destination",
+              "detail": "Question sent in Off-site backups conversation.",
+              "time": "Now"
+            }
+          ]
+        },
+        {
+          "title": "Configure encrypted scheduled backups",
+          "status": "queued",
+          "events": []
+        },
+        {
+          "title": "Verify both backup and restoration",
+          "status": "queued",
+          "events": []
+        }
+      ],
+      "finish": "Done. Encrypted scheduled backups were configured and a backup and restore test both passed. (Simulated result.)"
+    },
+    {
+      "id": "nextcloud",
+      "chat": "nextcloud",
+      "title": "Restore reliable synchronization of Nextcloud Tasks and verify that changes sync successfully.",
+      "status": "waiting",
+      "block": "external",
+      "stage": 0,
+      "children": [
+        {
+          "title": "Identify the synchronization failure",
+          "status": "completed",
+          "events": [
+            {
+              "kind": "tool",
+              "label": "Check CalDAV endpoint",
+              "detail": "HTTP 503 Service Unavailable",
+              "time": "08:13"
+            }
+          ]
+        },
+        {
+          "title": "Wait for the service to recover",
+          "status": "waiting",
+          "events": [
+            {
+              "kind": "system",
+              "label": "Service unavailable",
+              "detail": "The agent will retry automatically.",
+              "time": "Now"
+            }
+          ]
+        },
+        {
+          "title": "Verify changes sync in both directions",
+          "status": "queued",
+          "events": []
+        }
+      ],
+      "finish": "Done. Nextcloud recovered and a round-trip task sync passed. (Simulated result.)"
+    },
+    {
+      "id": "mph",
+      "chat": "mph",
+      "title": "Compare affordable accredited online MPH programs and recommend suitable options.",
+      "status": "working",
+      "stage": 0,
+      "children": [
+        {
+          "title": "Identify accredited online options",
+          "status": "completed",
+          "events": [
+            {
+              "kind": "tool",
+              "label": "Research school accreditation",
+              "detail": "Sample results collected.",
+              "time": "Now"
+            }
+          ]
+        },
+        {
+          "title": "Compare tuition, schedules and eligibility",
+          "status": "working",
+          "events": [
+            {
+              "kind": "reason",
+              "label": "Reasoning summary",
+              "detail": "Cross-check program costs and the timeline before producing a recommendation.",
+              "time": "Now"
+            }
+          ]
+        },
+        {
+          "title": "Deliver a supported recommendation",
+          "status": "queued",
+          "events": []
+        }
+      ],
+      "finish": "Done. I compared the qualifying programs and prepared a recommendation with tuition and accreditation details. (Simulated result.)"
+    },
+    {
+      "id": "agent",
+      "chat": "agent",
+      "title": "Explain the five fundamental primitives of PhunBot.",
+      "status": "completed",
+      "children": [
+        {
+          "title": "Provide a concise explanation",
+          "status": "completed",
+          "events": [
+            {
+              "kind": "verification",
+              "label": "Explanation delivered",
+              "detail": "",
+              "time": "Now"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mcp",
+      "chat": "mcp",
+      "title": "Explain what MCP is.",
+      "status": "completed",
+      "children": [
+        {
+          "title": "Explain the protocol",
+          "status": "completed",
+          "events": [
+            {
+              "kind": "verification",
+              "label": "Definition delivered",
+              "detail": "",
+              "time": "Now"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "it",
+      "chat": "it",
+      "title": "Explain the highest levels of fictional power scaling.",
+      "status": "completed",
+      "children": [
+        {
+          "title": "Explain competing tier systems",
+          "status": "completed",
+          "events": [
+            {
+              "kind": "verification",
+              "label": "Response delivered",
+              "detail": "",
+              "time": "Now"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
