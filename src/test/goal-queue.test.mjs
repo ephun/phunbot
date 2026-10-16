@@ -14,12 +14,13 @@ class Tasks {
 function queue(nc = new Tasks(), owner = 'worker') { return new GoalQueue(nc, { owner, leaseMs: 1000 }); }
 const request = (id, conversationId = 'conversation') => ({ conversationId, requestId: id, text: 'Request ' + id, model: 'model' });
 
-test('one conversation accepts distinct requests and retries deduplicate without losing queued work', async () => {
+test('one conversation keeps distinct requests under one open parent and retries deduplicate without losing queued work', async () => {
   const q = queue();
   const a = await q.admit(request('one')); const b = await q.admit(request('two'));
-  assert.notEqual(a.id, b.id); assert.equal(a.conversationId, b.conversationId);
+  assert.equal(a.id, b.id); assert.equal(a.conversationId, b.conversationId);
+  assert.equal((await q.nc.list()).filter((x) => x.kind === 'goal').length, 1);
   assert.equal((await q.admit(request('one'))).id, a.id);
-  assert.equal((await q.nc.list()).length, 2);
+  assert.equal((await q.nc.get(a.id)).requestReceipts.length, 2);
   await assert.rejects(() => q.admit({ ...request('one'), text: 'Changed meaning' }), /different|conflict/i);
 });
 

@@ -84,7 +84,11 @@ function normalizeGoal(g) {
     status: persistent,
     chat: String(g.session?.id || g.conversationId || ''),
     title: g.title || g.request || 'Untitled goal',
+    description: g.description || g.request || g.title || '',
     acceptanceCriteria: Array.isArray(g.acceptanceCriteria) ? g.acceptanceCriteria : [],
+    planChanges: Array.isArray(g.planChanges) ? g.planChanges : Array.isArray(g.plan?.changes) ? g.plan.changes : [],
+    completionKind: String(g.completionKind || g.completion?.kind || '').toLowerCase() || null,
+    completionBasis: typeof (g.completionBasis || g.completion?.basis) === 'string' ? (g.completionBasis || g.completion?.basis) : null,
     activity: g.activity || {
       count: 0,
       items: []
@@ -96,11 +100,13 @@ function status(g) {
   const p = String(g.persistentStatus || '').toLowerCase();
   if (p === 'completed') return 'completed';
   if (p === 'cancelled') return 'cancelled';
+  // A durable pause is authoritative even when an older live/execution
+  // projection still reports queued, blocked, or waiting.
+  if (p === 'paused' || String(g.liveExecution?.state || '').toLowerCase() === 'paused' || String(g.execution?.state || '').toLowerCase() === 'paused') return 'paused';
   if (g.blocker?.kind === 'dependency') return 'waiting';
   if (g.blocker || (g.authorizations || []).some(a => a.state === 'pending')) return 'blocked';
   if (active(g)) return 'working';
   if (g.execution?.nextRunAt > Date.now() || ['waiting_capacity', 'transient_failure', 'ineffective_strategy', 'yielded'].includes(g.execution?.state)) return 'waiting';
-  if (p === 'paused') return 'paused';
   return 'queued';
 }
 
@@ -461,6 +467,16 @@ function eventToggle(g, criterion) {
   }
   return fragment;
 }
+async function lifecycleAction(g, action) {
+  if ((action === 'cancel' || action === 'complete') && !confirm(`${action[0].toUpperCase() + action.slice(1)} this goal?`)) return;
+  try {
+    await api(`sessions/${encodeURIComponent(g.chat)}/${action}`, 'POST', { goalId: g.id });
+    await loadData();
+    await showGoal(g.id);
+  } catch (error) {
+    notice(error);
+  }
+}
 async function showGoal(id, {
   navigate = true
 } = {}) {
@@ -487,6 +503,11 @@ async function showGoal(id, {
     meta.append(link);
   }
   content.replaceChildren();
+  if (g.description && g.description !== g.title) {
+    const description = el('section', '', 'gsection goal-description');
+    description.append(el('h3', 'Current description'), el('p', g.description));
+    content.append(description);
+  }
   if (g.blocker || status(g) === 'waiting') {
     const strip = el('div', '', 'wait-strip'),
       message = el('span');
@@ -520,6 +541,34 @@ async function showGoal(id, {
     criteria.append(item);
   }
   content.append(criteria);
+  if (g.planChanges.length) {
+    const changes = el('section', '', 'gsection plan-history');
+    changes.append(el('h3', 'Plan changes'));
+    for (const change of g.planChanges) {
+      const text = typeof change === 'string' ? change : change.summary || change.description || JSON.stringify(change);
+      changes.append(el('p', text, 'plan-change'));
+    }
+    content.append(changes);
+  }
+  if (g.planRevisions?.length) {
+    const revisions = document.createElement('details');
+    revisions.className = 'gsection';
+    revisions.dataset.key = g.id + ':revisions';
+    revisions.append(el('summary', 'Previous plans'));
+    for (const revision of g.planRevisions) {
+      const record = el('section');
+      record.append(el('h4', 'Revision ' + revision.revision), el('p', revision.previousDescription));
+      for (const criterion of revision.criteria || []) {
+        record.append(el('p', `${criterion.title} · ${criterion.disposition} · ${criterion.accepted ? 'Verified' : 'Not verified'}`));
+        const verification = document.createElement('details');
+        verification.append(el('summary', 'Verification details'));
+        verification.append(el('pre', JSON.stringify({criterionId:criterion.id,verifier:criterion.verifier,evidence:criterion.evidence || null},null,2)));
+        record.append(verification);
+      }
+      revisions.append(record);
+    }
+    content.append(revisions);
+  }
   if (g.childGoals?.length) {
     const children = el('section', '', 'gsection');
     children.append(el('h3', 'Child goals'));
@@ -546,22 +595,24 @@ async function showGoal(id, {
     approvals.forEach(a => section.append(authorization(g, a)));
     content.append(section);
   }
-  if (c && !['completed', 'cancelled'].includes(status(g))) {
-    const actions = el('div', '', 'goal-actions'),
-      cancel = el('button', 'Cancel goal');
-    cancel.onclick = async () => {
-      if (!confirm('Cancel this goal?')) return;
-      try {
-        await api(`sessions/${encodeURIComponent(g.chat)}/cancel`, 'POST', {
-          goalId: g.id
-        });
-        await loadData();
-        await showGoal(g.id);
-      } catch (error) {
-        notice(error);
-      }
+  const lifecycle = status(g);
+  if (lifecycle === 'completed') {
+    const basis = g.completionBasis || (g.completionKind === 'verified' ? 'Acceptance criteria verified' : g.completionKind === 'user-directed' ? 'Completed at user direction' : 'Completion recorded');
+    const section = el('section', '', 'gsection completion-basis');
+    section.append(el('h3', 'Completion basis'), el('p', basis));
+    content.append(section);
+  }
+  if (c && !['completed', 'cancelled'].includes(lifecycle)) {
+    const actions = el('div', '', 'goal-actions');
+    const addAction = (name, action) => {
+      const button = el('button', name);
+      button.onclick = () => lifecycleAction(g, action);
+      actions.append(button);
     };
-    actions.append(cancel);
+    if (lifecycle === 'paused') addAction('Resume', 'resume');
+    else addAction('Pause', 'pause');
+    addAction('Cancel', 'cancel');
+    addAction('Complete', 'complete');
     content.append(actions);
   }
   content.querySelectorAll('details').forEach(d => d.open = openEvents.has(d.dataset.key));

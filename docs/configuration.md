@@ -1,6 +1,6 @@
 # Runtime configuration
 
-The application reads runtime credentials from `config/secrets/nextcloud.json` and the configured CA/certificate bundle from `config/nextcloud-ca.pem`. These files are deliberately not published. Start from [`config/nextcloud.example.json`](../config/nextcloud.example.json), then place the populated JSON at the runtime secret path.
+The application reads runtime credentials from `config/secrets/nextcloud.json`. HTTPS uses Node's default trusted CA store. An optional private CA/certificate bundle at `config/nextcloud-ca.pem` augments that trust store; it does not replace public roots or disable certificate validation. These private files are deliberately not published. The supported deployment runtime is Node 22.19.0 or newer. Start from [`config/nextcloud.example.json`](../config/nextcloud.example.json), then place the populated JSON at the runtime secret path.
 
 ## Nextcloud
 
@@ -11,9 +11,13 @@ The calendar path can be selected in either of two ways:
 - Set `calendarPath` to an absolute path (without query or fragment), or
 - Set `calendarName`; the adapter derives `/remote.php/dav/calendars/<encoded username>/<encoded calendar name>/`. If omitted, `calendarName` defaults to `phunbot-goals` for compatibility.
 
-For an HTTPS endpoint reached by IP, set optional `serverName` to the certificate's DNS name. This changes TLS SNI and the name checked in the certificate, but does not disable CA-chain validation. The configured CA/certificate bundle remains required; an optional `certificateFingerprint256` adds a leaf SHA-256 pin. A CA bundle is not treated as an implicit leaf pin, because a normal chain contains a different leaf certificate. Never use a pin to bypass hostname or chain validation.
+For an HTTPS endpoint reached by IP, set optional `serverName` to the certificate's DNS name. This changes TLS SNI and the name checked in the certificate, but does not disable CA-chain validation. The CA/certificate bundle is optional; when present it augments the default trust store. An optional `certificateFingerprint256` adds a leaf SHA-256 pin. A CA bundle is not treated as an implicit leaf pin, because a normal chain contains a different leaf certificate. Never use a pin to bypass hostname or chain validation.
 
 The adapter does not follow redirects and rejects cross-origin request paths, so Basic credentials cannot be sent to another origin. Errors intentionally omit response bodies and credential-bearing URLs.
+
+## Model responsibilities
+
+`roles.executor` selects normal execution; `roles.reviewer` selects independent deep verification and, by default, deep planning. An explicit `roles.planner` may select the configured deep planner separately. Planning and verification are separate operations even when they use the same model. The controller applies structured planning decisions and enforces lifecycle/lease/revision gates. See [goal lifecycle](goal-lifecycle.md).
 
 ## AMP uploads
 

@@ -91,8 +91,9 @@ try {
     reducedMotion: 'reduce'
   });
   page.on('pageerror', error => errors.push(error.message));
+  page.on('response', response => {if (response.status() === 401) console.error(JSON.stringify({unexpected401:new URL(response.url()).pathname,resource:response.request().resourceType(),hasAuthorization:Boolean(response.request().headers().authorization)}));});
   page.on('console', m => {
-    if (m.type() === 'error' && !m.text().includes('status of 400')) consoleErrors.push(m.text());
+    if (m.type() === 'error' && !m.text().includes('status of 400')) {consoleErrors.push(m.text());console.error(JSON.stringify({browserConsoleError:m.text(),location:m.location()}));}
   });
   await page.goto(fixture.base);
   await page.locator('#token').fill('fixture');

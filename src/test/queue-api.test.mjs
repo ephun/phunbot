@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { controlledPlanner } from "./controlled-planner.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -93,6 +94,8 @@ async function fixture() {
   const server = await start({
     root,
     ncClient: nc,
+    planner: controlledPlanner,
+    answerVerifier: async () => ({pass:true,reason:"Controlled answer review fixture"}),
     sessionFactory,
     port: 0,
     token: "fixture",
@@ -112,7 +115,7 @@ async function fixture() {
   return { root, nc, server, api, calls };
 }
 
-test("actual HTTP admission queues two goals in one conversation and executes more than three normal slices", async () => {
+test("actual HTTP admission keeps two messages in one open parent and executes more than three normal slices", async () => {
   const f = await fixture();
   try {
     const { data: row } = await f.api("sessions", {});
@@ -130,12 +133,10 @@ test("actual HTTP admission queues two goals in one conversation and executes mo
     });
     assert.equal(first.status, 202);
     assert.equal(second.status, 202);
-    assert.notEqual(first.data.goalId, second.data.goalId);
+    assert.equal(first.data.goalId, second.data.goalId);
     assert.equal(duplicate.data.goalId, second.data.goalId);
     await until(
-      async () =>
-        (await f.nc.get(first.data.goalId)).status === "COMPLETED" &&
-        (await f.nc.get(second.data.goalId)).status === "COMPLETED",
+      async () => (await f.nc.get(first.data.goalId)).status === "COMPLETED",
     );
     const cp = JSON.parse(
       fs.readFileSync(

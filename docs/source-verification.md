@@ -49,7 +49,7 @@ Hashes describe bytes observed at startup/on disk, not an attestation of V8's mo
 ## Unsatisfied release gates
 
 - Independent review of the final published revision and resulting fixes.
-- Explicitly authorized disposable AMP mutation, readback and rollback.
+- Optional live AMP mutation, readback and rollback only on an explicitly authorized disposable target. Keep consequential operations gated when this test remains outstanding; it need not prevent otherwise safe application deployment.
 - Authorized candidate n8n awakening through an approved reachable path.
 - Authorized production deployment and exact-source verification.
 - Live rollback and durable-data preservation validation.

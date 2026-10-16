@@ -2,6 +2,8 @@
 
 This repository is the canonical application implementation. Development, review, tests and any authorized deployment must use the same version-controlled source, not a separately sanitized private fork. Runtime configuration, credentials and operational data remain private and separate.
 
+The conversation-goal revision is described in [goal-lifecycle.md](docs/goal-lifecycle.md). Completion can now be independently verified or explicitly user-directed; the latter preserves unfinished criterion states rather than asserting verification.
+
 ## Responsibilities reviewed
 
 - Pi owns model execution and canonical conversations.
@@ -43,9 +45,9 @@ Independent focused implementation reviews covered lifecycle/concurrency, author
 ## Remaining release gates
 
 1. Independent review of the final published revision and resulting fixes.
-2. Explicit authorization for a disposable AMP mutation/readback/rollback test.
+2. Record whether an explicitly authorized disposable AMP mutation/readback/rollback target exists. If absent, keep consequential operations gated and report this live test outstanding; it does not itself block deployment.
 3. Explicit authorization for isolated candidate n8n awakening through an approved path.
 4. Explicit authorization for production deployment and exact-source verification.
 5. Authorized live rollback and durable-data preservation validation.
 
-No production restart, deployment, real AMP mutation or production workflow change is part of this preparation. Automated tests do not close these gates. No telemetry or UI redesign is included.
+No production restart, deployment, real AMP mutation or production workflow change is part of this preparation. Automated tests do not close these gates. The existing telemetry and prototype UI are retained; lifecycle controls do not constitute a UI redesign.
