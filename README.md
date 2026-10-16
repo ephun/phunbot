@@ -31,7 +31,14 @@ node src/integration/native-faults.mjs
 cd src
 npx playwright install chromium
 node browser/acceptance.mjs
+node test_ui.mjs
+node integration/ui-browser.mjs
+uv run --with pillow python integration/ui-compare.py
 ```
+
+The [prototype UI implementation report](docs/prototype-ui.md) records the exact
+specimen, API mapping, before/after screenshots, disclosed deviations, and browser
+acceptance evidence. All UI tests use disposable controlled fixtures, not production.
 
 `node_modules/` and AMP `dist/` are generated, not published application source. Keep the build output immutable and record its separate fingerprint. Tests use controlled fixtures unless specifically documented otherwise. Native Pi tests exercise the installed native runtime with a local provider and Tasks fixture, not live production integrations.
 

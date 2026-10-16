@@ -1,0 +1,141 @@
+{
+  "passed": true,
+  "checks": [
+    "Desktop geometry matches original app/sidebar/messages/user/composer exactly",
+    "Live executing goal and blocked goals show separate truthful badges",
+    "Global goals show authoritative goals, separate acceptance criteria and collapsed activity",
+    "Execution history API expansion and nested event details survive polling",
+    "Goal selection survives refresh via URL, not browser goal storage",
+    "Mobile conversation geometry matches the original exactly at 390x844",
+    "Mobile drawer remains open through polling and closes on conversation selection",
+    "Search finds canonical message text, then navigates to its real conversation",
+    "Model selection writes the actual session model through the API",
+    "Folder create, move, rename, delete and membership persist across refresh",
+    "Canonical tool calls are inspectable and collapsed by default; provider thinking stays excluded",
+    "Attachment add/remove controls work",
+    "Actual HTTP admission and two simultaneous executing conversations/goals",
+    "Image payload reaches real admission checkpoint and canonical transcript rendering",
+    "Real cancellation transitions persistent goal state and global filter",
+    "Browser cannot bypass independent owner approval; exact-goal denial works",
+    "Real mobile touch context navigates drawer and conversation",
+    "Direct hash navigation updates the rendered view",
+    "A delayed real API response cannot overwrite a newer conversation selection",
+    "No browser JavaScript errors or unexpected console errors"
+  ],
+  "referenceRects": {
+    "app": [
+      0,
+      0,
+      1440,
+      1000
+    ],
+    "sidebar": [
+      0,
+      0,
+      282,
+      1000
+    ],
+    "messages": [
+      461,
+      62,
+      800,
+      801
+    ],
+    "user": [
+      649,
+      106,
+      580,
+      73
+    ],
+    "composer": [
+      465,
+      877,
+      792,
+      107
+    ]
+  },
+  "implementedRects": {
+    "app": [
+      0,
+      0,
+      1440,
+      1000
+    ],
+    "sidebar": [
+      0,
+      0,
+      282,
+      1000
+    ],
+    "messages": [
+      461,
+      62,
+      800,
+      801
+    ],
+    "user": [
+      649,
+      106,
+      580,
+      73
+    ],
+    "composer": [
+      465,
+      877,
+      792,
+      107
+    ]
+  },
+  "mobileReference": {
+    "messages": [
+      0,
+      62,
+      390,
+      652
+    ],
+    "user": [
+      56.171875,
+      90,
+      316.828125,
+      97.5
+    ],
+    "composer": [
+      10,
+      725,
+      370,
+      107
+    ]
+  },
+  "mobileRects": {
+    "messages": [
+      0,
+      62,
+      390,
+      652
+    ],
+    "user": [
+      56.171875,
+      90,
+      316.828125,
+      97.5
+    ],
+    "composer": [
+      10,
+      725,
+      370,
+      107
+    ]
+  },
+  "browser": "151.0.7922.34",
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 1000
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "fixtures": "Controlled HTTP app; in-memory Nextcloud test double; canonical Pi sessions; no live provider or production access"
+}

@@ -1,0 +1,65 @@
+{
+  "pairs": [
+    {
+      "view": "desktop-conversation",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "pixelsChangedAbove8": 805,
+      "totalPixels": 1440000,
+      "changedPercent": 0.0559
+    },
+    {
+      "view": "mobile-conversation",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "pixelsChangedAbove8": 263,
+      "totalPixels": 329160,
+      "changedPercent": 0.0799
+    },
+    {
+      "view": "mobile-sidebar",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "pixelsChangedAbove8": 640,
+      "totalPixels": 329160,
+      "changedPercent": 0.1944
+    },
+    {
+      "view": "desktop-goals",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "pixelsChangedAbove8": 1027,
+      "totalPixels": 1440000,
+      "changedPercent": 0.0713
+    },
+    {
+      "view": "desktop-goal",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "pixelsChangedAbove8": 2723,
+      "totalPixels": 1440000,
+      "changedPercent": 0.1891
+    },
+    {
+      "view": "desktop-events",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "pixelsChangedAbove8": 22283,
+      "totalPixels": 1440000,
+      "changedPercent": 1.5474
+    }
+  ],
+  "note": "Pixel differences include disclosed production controls, truthful state/criteria labels, and expandable real event payloads; no pixel-perfect claim is made."
+}
