@@ -273,6 +273,14 @@ export class Controller {
       if (g.invalid || ["COMPLETED", "CANCELLED"].includes(g.status))
         throw Error("Goal is terminal");
       const clean = this.validateCriteria(criteria);
+      if (g.planReady && (g.planRevision || 1) === (g.revision || 1)) {
+        const currentPlan = crypto
+          .createHash("sha256")
+          .update(JSON.stringify(g.planRevision ? [g.revision || 1, canonical(clean)] : canonical(clean)))
+          .digest("hex")
+          .slice(0, 24);
+        if (g.planId !== currentPlan) throw Error("Plan already exists");
+      }
       if (
         clean.some((t) => t.verifier.kind === "answer_quality") &&
         !["answer", "arithmetic"].includes(outcomeContract(g.request).kind)
@@ -295,26 +303,23 @@ export class Controller {
       }
       const planId = crypto
         .createHash("sha256")
-        .update(JSON.stringify(canonical(clean)))
+        .update(JSON.stringify([g.revision || 1, canonical(clean)]))
         .digest("hex")
         .slice(0, 24);
-      const expected = clean.map((_, i) =>
-        crypto
-          .createHash("sha256")
-          .update(`${id}:${planId}:${i}`)
-          .digest("hex")
-          .slice(0, 32),
-      );
-      if (g.planReady) {
-        if (
-          g.planId !== planId ||
-          JSON.stringify(g.expectedChildIds) !== JSON.stringify(expected)
-        )
-          throw Error("Plan already exists");
-      } else {
+      const existingTasks = await this.nc.list(signal);
+      const expected = clean.map((criterion, i) => {
+        const prior = existingTasks.find(
+          (task) => task.kind === "criterion" && task.parent === id &&
+            (!g.expectedChildIds || g.expectedChildIds.includes(task.id)) &&
+            task.title === criterion.title &&
+            JSON.stringify(canonical(task.verifier)) === JSON.stringify(canonical(criterion.verifier)),
+        );
+        return prior?.id || crypto.createHash("sha256").update(`${id}:${g.revision || 1}:${planId}:${i}`).digest("hex").slice(0, 32);
+      });
+      if (!g.planReady || (g.planRevision || 1) !== (g.revision || 1)) {
         await this.assertExecution(id);
         await this.nc.put(
-          { ...g, planId, expectedChildIds: expected, planReady: true },
+          { ...g, planId, planRevision: g.revision || 1, expectedChildIds: expected, planReady: true },
           g.etag,
           signal,
         );
@@ -345,6 +350,37 @@ export class Controller {
       return result;
     });
   }
+  async applyPlanning(id, decision, revision, signal) {
+    const before = await this.nc.get(id, signal);
+    if ((before.revision || 1) !== revision || ["COMPLETED", "CANCELLED"].includes(before.status)) throw Error("Stale planning decision");
+    if (decision.execution === "complete") {
+      await this.assertExecution(id);
+      return this.nc.put({...before,status:"COMPLETED",completionKind:"user-directed",completedAt:new Date().toISOString(),lease:null,needsPlanning:false,execution:{...before.execution,state:"completed",nextRunAt:0}}, before.etag, signal);
+    }
+    const clean = this.validateCriteria(decision.criteria);
+    const previous = (await this.nc.list(signal)).filter(t => t.kind === "criterion" && t.parent === id && (!before.expectedChildIds || before.expectedChildIds.includes(t.id)));
+    await this.plan(id, clean, signal);
+    await this.assertExecution(id);
+    const current = await this.nc.get(id, signal);
+    if ((current.revision || 1) !== revision) throw Error("Stale planning decision");
+    const paused = decision.execution === "pause" || (before.paused && !["resume", "complete"].includes(decision.execution));
+    const next = {
+      ...current, title: decision.title, description: decision.description, request: decision.description,
+      subgoals: decision.subgoals, needsPlanning: false, paused,
+      planChanges: decision.changes, plannedStrategyGeneration: this.checkpoint(id).strategyGeneration || 0,
+      planRevisions: [...(before.planRevisions || []), {
+        at: new Date().toISOString(), revision, previousDescription: before.description || before.request,
+        previousPlanId: before.planId || null, changes: decision.changes,
+        criteria: previous.map(t => ({...t, accepted: Boolean(this.criterionAccepted(before,t)), disposition: current.expectedChildIds.includes(t.id) ? "retained" : "superseded"}))
+      }],
+      execution: {...current.execution, state: paused ? "paused" : "running"}
+    };
+    if (decision.execution === "complete") {
+      next.status = "COMPLETED"; next.completionKind = "user-directed";
+      next.completedAt = new Date().toISOString(); next.lease = null;
+    }
+    return this.nc.put(next, current.etag, signal);
+  }
   safeFile(relative) {
     const base = path.resolve(`${this.root}/work`),
       p = path.resolve(base, relative),
@@ -360,7 +396,7 @@ export class Controller {
       if (g.invalid || ["CANCELLED", "COMPLETED"].includes(g.status))
         throw Error("Goal is terminal");
       const t = await this.nc.get(taskId, signal);
-      if (t.invalid || t.parent !== id) throw Error("Wrong goal");
+      if (t.invalid || t.parent !== id || (g.expectedChildIds && !g.expectedChildIds.includes(taskId))) throw Error("Wrong goal or superseded criterion");
       const v = t.verifier;
       let evidence;
       if (v.kind === "answer_quality") {
@@ -379,6 +415,11 @@ export class Controller {
           throw Error("Native final answer required");
         const verdict = checkAnswer(g.request, output.text);
         if (!verdict.pass) throw Error(verdict.reason);
+        if (this.answerReviewer) {
+          const independent = await this.answerReviewer(g,t,event,signal);
+          if (independent?.pass !== true || typeof independent.reason !== "string" || !independent.reason.trim()) throw Error("Independent answer review rejected: " + (independent?.reason || "invalid verdict"));
+          verdict.independentReview = independent;
+        }
         evidence = {
           kind: v.kind,
           ...verdict,
@@ -434,7 +475,7 @@ export class Controller {
       signal?.throwIfAborted();
       await this.assertExecution(id);
       const latestGoal = await this.nc.get(id, signal);
-      if (latestGoal.status !== "NEEDS-ACTION") throw Error("Goal is terminal");
+      if (latestGoal.status !== "NEEDS-ACTION" || latestGoal.paused || (latestGoal.revision || 1) !== (g.revision || 1) || latestGoal.planId !== g.planId || !latestGoal.planReady) throw Error("Goal is terminal, paused or plan superseded");
       // Stage evidence without publishing completion. Acceptance is fenced by
       // the parent goal ETag, which changes on cancellation or lease takeover.
       const verificationId = crypto.randomUUID();
@@ -599,14 +640,35 @@ export class Controller {
       return this.nc.put(next, g.etag);
     });
   }
-  async cancel(id) {
-    return this.lock(id, async () => {
+  async lifecycle(id, action) {
+    if (!["pause","resume","cancel","complete"].includes(action)) throw Error("Invalid lifecycle action");
+    for (let attempt=0; attempt<3; attempt++) {
       const g = await this.nc.get(id);
-      if (g.status === "CANCELLED") return g;
-      if (g.status === "COMPLETED") throw Error("Goal is terminal");
-      return this.nc.put({ ...g, status: "CANCELLED" }, g.etag);
-    });
+      if (g.invalid) throw Error("Invalid goal");
+      if (["COMPLETED","CANCELLED"].includes(g.status)) {
+        if ((action === "complete" && g.status === "COMPLETED") || (action === "cancel" && g.status === "CANCELLED")) return g;
+        throw Error("Goal is terminal");
+      }
+      if (action === "resume" && !g.paused) return g;
+      if (action === "pause" && g.paused) return g;
+      const at = new Date().toISOString();
+      const next = {...g, lease:null, revision:(g.revision || 1)+1,
+        lifecycleHistory:[...(g.lifecycleHistory || []),{action,at}],
+        paused:action === "pause",
+        needsPlanning:action === "resume",
+        execution:{...g.execution,state:({pause:"paused",resume:"queued",cancel:"cancelled",complete:"completed"})[action],nextRunAt:0}};
+      if (action === "complete") Object.assign(next,{status:"COMPLETED",completionKind:"user-directed",completedAt:at});
+      if (action === "cancel") Object.assign(next,{status:"CANCELLED",cancelledAt:at});
+      try {return await this.nc.put(next,g.etag);} catch(error) {if(!/409|412/.test(error.message)||attempt===2)throw error;}
+    }
   }
+  pause(id) {return this.lifecycle(id,"pause");}
+  resumeGoal(id) {return this.lifecycle(id,"resume");}
+  complete(id, kind="user-directed") {
+    if(kind!=="user-directed") throw Error("Verified completion requires accepted criteria through settle");
+    return this.lifecycle(id,"complete");
+  }
+  cancel(id) {return this.lifecycle(id,"cancel");}
   async blocker(id, p, review) {
     return this.lock(id, async () => {
       const g = await this.nc.get(id);
@@ -757,12 +819,12 @@ export class Controller {
       return { continue: false, reason: "invalid_goal" };
     if (
       current.status === "NEEDS-ACTION" &&
-      !current.blocker &&
+      !current.blocker && !current.paused && !current.needsPlanning &&
       current.planReady
     ) {
       const pending = (await this.nc.list()).filter(
         (t) =>
-          t.parent === id &&
+          t.parent === id && (!current.expectedChildIds || current.expectedChildIds.includes(t.id)) &&
           !this.criterionAccepted(current, t) &&
           t.verifier?.kind === "answer_quality",
       );
@@ -784,13 +846,16 @@ export class Controller {
         cp = this.checkpoint(id);
       if (g.status === "CANCELLED")
         return { continue: false, reason: "cancelled" };
+      if (g.status === "COMPLETED") return { continue: false, reason: g.completionKind === "user-directed" ? "user_completed" : "verified_complete" };
+      if (g.paused) return { continue: false, reason: "paused" };
+      if (g.needsPlanning || (g.planRevision && g.planRevision !== (g.revision || 1))) return { continue: true, reason: "replan", instruction: "The deep planner must incorporate current instructions before execution." };
       if (g.blocker)
         return { continue: false, reason: "blocked", blocker: g.blocker };
       const tasks = await this.nc.list();
       const expected = Array.isArray(g.expectedChildIds)
         ? g.expectedChildIds
         : [];
-      const planned = tasks.filter((t) => t.parent === id);
+      const planned = tasks.filter((t) => t.parent === id && expected.includes(t.id));
       const complete =
         g.planReady &&
         expected.length > 0 &&
@@ -803,7 +868,7 @@ export class Controller {
         await this.assertExecution(id);
         if (g.status !== "COMPLETED") {
           const confirmed = await this.nc.put(
-            { ...g, status: "COMPLETED" },
+            { ...g, status: "COMPLETED", completionKind: "verified", completedAt: new Date().toISOString() },
             g.etag,
           );
           if (confirmed.status !== "COMPLETED")

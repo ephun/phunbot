@@ -91,7 +91,7 @@ export function goalReadModels({
     const row = sessions.get(goal.conversationId),
       runtime = live.get(goal.id) || {};
     const observations = checkpoint(root, goal.id).evidence;
-    const criteria = (byParent.get(goal.id) || []).map(criterion => ({
+    const criteria = (byParent.get(goal.id) || []).filter(t=>!goal.expectedChildIds || goal.expectedChildIds.includes(t.id)).map(criterion => ({
       id: criterion.id,
       title: criterion.title,
       status: criterion.status,
@@ -122,6 +122,12 @@ export function goalReadModels({
       id: goal.id,
       title: goal.title,
       request: goal.request,
+      description: goal.description,
+      subgoals: goal.subgoals || [],
+      planChanges: goal.planChanges || [],
+      planRevisions: redact(goal.planRevisions || []),
+      revision: goal.revision || 1,
+      requestReceipts: (goal.requestReceipts || []).map(({ requestId, requestHash, goalId, receivedAt, revision }) => ({ requestId, requestHash, goalId, receivedAt, revision })),
       created: goal.created,
       parentId: goal.parent || null,
       childGoals: goals.filter(item => item.kind === "goal" && item.parent === goal.id).map(item => ({
@@ -130,6 +136,8 @@ export function goalReadModels({
         status: item.status
       })),
       persistentStatus: goal.status,
+      completionKind: goal.completionKind || null,
+      paused: Boolean(goal.paused || goal.execution?.state === "paused"),
       status: goal.status,
       liveExecution: {
         state: runtime.busy || runtime.inFlight ? "running" : "idle",

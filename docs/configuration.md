@@ -15,6 +15,10 @@ For an HTTPS endpoint reached by IP, set optional `serverName` to the certificat
 
 The adapter does not follow redirects and rejects cross-origin request paths, so Basic credentials cannot be sent to another origin. Errors intentionally omit response bodies and credential-bearing URLs.
 
+## Model responsibilities
+
+`roles.executor` selects normal execution; `roles.reviewer` selects independent deep verification and, by default, deep planning. An explicit `roles.planner` may select the configured deep planner separately. Planning and verification are separate operations even when they use the same model. The controller applies structured planning decisions and enforces lifecycle/lease/revision gates. See [goal lifecycle](goal-lifecycle.md).
+
 ## AMP uploads
 
 `amp_upload_file` accepts local files only below roots listed in `AMP_MCP_UPLOAD_ROOTS`, as a comma-separated absolute-path list. There is no source-tree or machine-specific fallback: when the variable is unset or empty, the allowlist is empty and uploads fail closed. The launcher may set this variable for a specific runtime staging directory.

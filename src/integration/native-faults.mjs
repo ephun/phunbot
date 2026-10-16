@@ -104,6 +104,14 @@ const fixture = http.createServer(async (req, res) => {
         held.push(res);
         return;
       }
+      const system = b.messages?.filter(m=>m.role==='system').map(m=>typeof m.content==='string'?m.content:JSON.stringify(m.content)).join(' ') || '';
+      if (system.includes('deep goal planner')) {
+        const user=b.messages.findLast(m=>m.role==='user');
+        const text=typeof user?.content==='string'?user.content:user?.content?.filter(c=>c.type==='text').map(c=>c.text).join('');
+        const goal=JSON.parse(text).goal;
+        return stream(res,JSON.stringify({title:goal.title,description:goal.request,criteria:[{title:'Answer the controlled recursion question',verifier:{kind:mode==='denial'?'evidence_review':'answer_quality',path:'',text:''}}],subgoals:[],changes:['Controlled native deep planning'],execution:'continue'}));
+      }
+      if (system.includes('Independently review an actual native Pi informational answer')) return stream(res,JSON.stringify({pass:true,reason:'Controlled native reviewer checked the fixture recursion answer'}));
       if (mode === "denial") return stream(res, "", true);
       return stream(
         res,

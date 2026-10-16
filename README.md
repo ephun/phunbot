@@ -50,9 +50,13 @@ node /path/to/checkout/src/source-verify.mjs --compact
 
 Store the final manifest and test receipts outside the source tree. Publication and production identity must be verified separately; local test results are not proof of untested live behavior.
 
+## Conversation goals
+
+See [goal admission, deep planning, lifecycle and recovery](docs/goal-lifecycle.md). Each conversation has at most one open parent goal; Pause/Resume suspend/continue it, while Cancel/Complete close it permanently.
+
 ## Release safety
 
-Do not activate the workflow example or start a production replacement automatically. Final published-revision review, approved disposable AMP mutation/readback/rollback, candidate n8n awakening, production deployment/exact-source verification and live rollback remain explicit authorization gates.
+Do not activate the workflow example or start a production replacement automatically. Final published-revision review, candidate n8n awakening, production deployment/exact-source verification and state-preserving rollback remain explicit release gates. A live AMP mutation/readback/rollback requires an explicitly authorized disposable target; its absence does not block an otherwise safe application deployment while consequential AMP operations remain gated.
 
 ## License
 

@@ -106,6 +106,7 @@ nc.data.set("browser-goal", {
   kind: "goal",
   conversationId: ids[0],
   title: "Controlled pending operation",
+  description: "Inspect the exact controlled pending operation before an independent owner decision.",
   status: "NEEDS-ACTION",
   blocker: {
     kind: "authorization",
@@ -137,12 +138,13 @@ const server = await start({
   token: "browser-fixture",
   port: 0,
   ncClient: nc,
+  planner: async (_runtime,_policy,goal) => ({title:goal.title,description:goal.request,criteria:[{title:"Controlled browser fixture response",verifier:{kind:"evidence_review"}}],subgoals:[],changes:["Controlled browser plan"],execution:"continue"}),
   sessionFactory: async (row, {
     controller: c
   }) => {
     const manager = managers.get(row.id) || SessionManager.inMemory();
     managers.set(row.id, manager);
-    return {
+    const runtime = {
       busy: false,
       session: {
         sessionManager: manager,
@@ -166,10 +168,7 @@ const server = await start({
             message.content,
             message.display,
           );
-          if (triggerTurn)
-            throw Error(
-              "Controlled browser fixture unexpectedly requested another execution turn",
-            );
+          if (triggerTurn) await managers.get(row.id).phunbotFixturePrompt();
         },
         dispose() {},
         prompt: async (text, {
@@ -216,6 +215,8 @@ const server = await start({
         },
       },
     };
+    manager.phunbotFixturePrompt = () => runtime.session.prompt("Controlled request delivered through canonical Pi history");
+    return runtime;
   },
 });
 let browser, page;
@@ -303,6 +304,12 @@ try {
     hasText: 'Controlled pending operation'
   }).click();
   await page.locator('.authorization').waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Pause', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Cancel', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Complete', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Stop', exact: true }).count(), 0);
+  assert.match(await page.locator('#goalcontent').innerText(), /Current description/i);
+  checks.push('Lifecycle labels, current description, and no Stop control');
   assert.match(await page.locator('#goalcontent').innerText(), /Not yet accepted/);
   assert.equal(await page.locator('.child .goal-icon.completed').count(), 0);
   checks.push('Provisional child status is not displayed as accepted verification');
@@ -332,7 +339,7 @@ try {
   checks.push('Canonical history after reload');
   page.once('dialog', dialog => dialog.accept('Empty folder'));
   await page.locator('#new-folder').click();
-  await page.locator('#folders').getByText('No conversations yet', {
+  await page.locator('.folder-row').filter({hasText:'Empty folder'}).locator('xpath=following-sibling::div[1]').getByText('No conversations yet', {
     exact: true
   }).waitFor();
   checks.push('Empty folder creation');
@@ -342,7 +349,7 @@ try {
   }).click();
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', {
-    name: 'Cancel goal',
+    name: 'Cancel',
     exact: true
   }).click();
   await page.locator('#goalmeta').getByText('Cancelled', {

@@ -1,4 +1,5 @@
 // Explicit synthetic test fixture. Never reads production storage or credentials.
+import { controlledPlanner } from "./controlled-planner.mjs";
 import fs from 'node:fs';
 import os from 'node:os';
 import crypto from 'node:crypto';
@@ -155,6 +156,8 @@ export async function prototypeFixture() {
   const server = await start({
     root,
     ncClient: nc,
+    planner: controlledPlanner,
+    answerVerifier: async () => ({pass:true,reason:"Controlled answer review fixture"}),
     token: 'fixture',
     port: 0,
     host: '127.0.0.1',
