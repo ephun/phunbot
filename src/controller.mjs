@@ -351,6 +351,14 @@ export class Controller {
             )),
         );
       }
+      const materialized = await this.nc.list(signal);
+      const exact = expected.length === clean.length && new Set(expected).size === expected.length && expected.every((childId,index) => {
+        const matches = materialized.filter(task => task.id === childId);
+        const child = matches[0];
+        return matches.length === 1 && !child.invalid && child.kind === "criterion" && child.parent === id &&
+          child.title === clean[index].title && JSON.stringify(canonical(child.verifier)) === JSON.stringify(canonical(clean[index].verifier));
+      });
+      if (!exact) throw Error("Plan children incomplete or changed before publication");
       const publication = await this.nc.get(id, signal);
       await this.assertExecution(id);
       if (publication.etag !== stagedParent.etag ||
