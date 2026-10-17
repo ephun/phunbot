@@ -22,7 +22,11 @@ export async function planGoal(runtime, policy, goal, history, criteria, evidenc
   for(let attempt=1;attempt<=2;attempt++) {
     boundedSignal.throwIfAborted();
     const result=await runtime.completeSimple(model,context,{maxTokens:5000,signal:boundedSignal,onPayload:p=>structuredPayload(p,properties)});
-    if(result.stopReason==='error'||result.errorMessage)throw Error('Configured deep planner request failed');
+    if(result.stopReason==='error'||result.errorMessage) {
+      if (attempt === 2) throw Error('Configured deep planner request failed');
+      context={...context,systemPrompt:context.systemPrompt+' The previous planner transport attempt failed transiently. Retry the same request and return the complete decision; do not treat the transport failure as a plan.'};
+      continue;
+    }
     try{return parsePlanningDecision(result);}catch(error){
       if(!(error instanceof PlanningDecisionError))throw error;
       if(attempt===2)throw new PlanningDecisionError(error.diagnostics.issues,attempt);

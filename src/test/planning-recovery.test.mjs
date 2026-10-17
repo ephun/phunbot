@@ -16,6 +16,11 @@ test('planner exhausts at two invalid decisions with safe field diagnostics and 
  await assert.rejects(planGoal(runtime,policy,goal,[],[],[]),e=>e.name==='PlanningDecisionError' && e.diagnostics?.attempts===2 && !JSON.stringify(e).includes('PRIVATE_SENTINEL') && e.diagnostics.issues.some(x=>x.path==='title'));
  assert.equal(calls,2);
 });
+test('planner retries one transient transport failure without treating failure as a plan',async()=>{
+ let calls=0;const runtime={getModel:()=>({id:'deep'}),completeSimple:async()=>{calls++;return calls===1?response({},'error'):response(valid());}};
+ const decision=await planGoal(runtime,policy,goal,[],[],[]);
+ assert.equal(decision.title,'Answer the question');assert.equal(calls,2);
+});
 test('planner rejects schema drift, truncation, invalid criteria and subgoal graphs without coercion',()=>{
  const cases=[
   [v=>{v.title=' ';},'title','string_bounds'],

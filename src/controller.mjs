@@ -160,6 +160,22 @@ export class Controller {
         : null;
     } catch { return null; }
   }
+  canonicalReplyOutput(id, { now = Date.now() } = {}) {
+    const events = (this.checkpoint(id).evidence || [])
+      .filter(e => e.tool === "reply" && !e.error)
+      .reverse();
+    for (const event of events) {
+      if (Date.parse(event.at) > now) continue;
+      try {
+        let value = this.loadEvidenceResult(id, event.id);
+        if (Array.isArray(value)) value = value.find(item => item?.type === "text")?.text;
+        if (typeof value === "string") value = JSON.parse(value);
+        if (value?.published === true && value.kind === "answer" && typeof value.text === "string" && value.text.trim())
+          return { ...value, evidenceId: event.id, emittedAt: event.at };
+      } catch {}
+    }
+    return null;
+  }
   beginSlice(id, now = Date.now()) {
     const cp = this.checkpoint(id);
     if (cp.paused === "resource_limit") {
@@ -482,11 +498,13 @@ export class Controller {
       let evidence;
       try {
       if (v.kind === "answer_quality") {
+        const reply = this.canonicalReplyOutput(id);
         const event = this.checkpoint(id).evidence.filter((e) => e.tool === "assistant_output" && !e.error).at(-1);
         const native = this.nativeFinalOutput(id, { revision: g.revision || 1 });
-        const output = native;
-        if (!output || !event || output.evidenceId !== event.id)
-          throw Error("Native final answer required");
+        const output = reply || native;
+        const outputEvent = reply ? { id: reply.evidenceId } : event;
+        if (!output || !outputEvent || output.evidenceId !== outputEvent.id)
+          throw Error("Canonical visible answer required");
         const requests = g.requestHistory?.length ? g.requestHistory : [{text:g.request,images:this.checkpoint(id).inputImages}];
         const contracts = requests.map(request => outcomeContract(request.text, Boolean(request.images?.length)));
         if (!contracts.every(contract => ["answer", "arithmetic"].includes(contract.kind)))
@@ -506,14 +524,17 @@ export class Controller {
           verdict.expectedResults = expectedResults;
         }
         if (this.answerReviewer) {
-          const independent = await this.answerReviewer(g,t,event,signal);
+          const reviewEvent = reply
+            ? this.checkpoint(id).evidence.find(e => e.id === reply.evidenceId)
+            : event;
+          const independent = await this.answerReviewer(g,t,reviewEvent,signal);
           if (independent?.pass !== true || typeof independent.reason !== "string" || !independent.reason.trim()) throw Error("Independent answer review rejected: " + (independent?.reason || "invalid verdict"));
           verdict.independentReview = independent;
         }
         evidence = {
           kind: v.kind,
           ...verdict,
-          evidenceIds: [event.id],
+          evidenceIds: [outputEvent.id],
           answerSha256: crypto
             .createHash("sha256")
             .update(output.text)
