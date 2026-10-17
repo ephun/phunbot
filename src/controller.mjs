@@ -374,8 +374,7 @@ export class Controller {
     const before = await this.nc.get(id, signal);
     if ((before.revision || 1) !== revision || ["COMPLETED", "CANCELLED"].includes(before.status)) throw Error("Stale planning decision");
     if (decision.execution === "complete") {
-      await this.assertExecution(id);
-      return this.nc.put({...before,status:"COMPLETED",completionKind:"user-directed",completedAt:new Date().toISOString(),lease:null,needsPlanning:false,execution:{...before.execution,state:"completed",nextRunAt:0}}, before.etag, signal);
+      throw Error("Completion requires an authenticated owner action, not a planning decision");
     }
     const clean = this.validateCriteria(decision.criteria);
     const previous = (await this.nc.list(signal)).filter(t => t.kind === "criterion" && t.parent === id && (!before.expectedChildIds || before.expectedChildIds.includes(t.id)));
@@ -395,10 +394,7 @@ export class Controller {
       }],
       execution: {...current.execution, state: paused ? "paused" : "running"}
     };
-    if (decision.execution === "complete") {
-      next.status = "COMPLETED"; next.completionKind = "user-directed";
-      next.completedAt = new Date().toISOString(); next.lease = null;
-    }
+
     return this.nc.put(next, current.etag, signal);
   }
   safeFile(relative) {

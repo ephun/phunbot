@@ -583,6 +583,8 @@ async function showGoal(id, {
   if (g.activity.count > associated.size || !g.acceptanceCriteria.length) {
     const section = el('section', '', 'gsection');
     section.append(el('h3', 'Execution history'));
+    if (g.liveExecution?.error && !['COMPLETED', 'CANCELLED'].includes(g.persistentStatus))
+      section.append(el('p', g.liveExecution.error, 'execution-error'));
     const execution = eventToggle(g);
     if (execution) section.append(execution);
     else section.append(el('p', 'No execution activity yet.', 'empty'));

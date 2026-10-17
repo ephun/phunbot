@@ -9,6 +9,7 @@ main{flex:1;display:flex;flex-direction:column;min-width:0}.topbar{flex:0 0 62px
 @media(prefers-reduced-motion:reduce){.signal.working,.goal-icon.working,.typing i{animation:none}.sidebar{transition:none}}
 
 /* The prototype's rules above are unchanged. Production-only affordances below. */
+.side-scroll{overflow-x:hidden;min-width:0}.folder-group,.folder-row{min-width:0;max-width:100%}.folder{min-width:0;overflow:hidden}.folder>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .message.assistant{position:relative}.message.assistant pre{position:relative;overflow:auto}.copy-message,.copy-code{font-size:10px;color:var(--muted);position:absolute;right:0;top:0;opacity:0;padding:3px 5px;border-radius:4px;background:var(--bg)}.message.assistant:hover>.copy-message,.copy-message:focus-visible,pre:hover>.copy-code,.copy-code:focus-visible{opacity:1}.copy-buffer{position:fixed;left:-9999px}.validation-toggle{display:block;margin-top:14px;font-size:11px;color:var(--muted)}
 
 .empty-folder{font-size:11px;color:var(--muted);padding:6px 10px;margin:0}

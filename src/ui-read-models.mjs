@@ -51,7 +51,17 @@ export function compactHistory(root, id, {
   expand = false
 } = {}) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset < 0) throw Error("Invalid history pagination");
-  const events = checkpoint(root, id).evidence;
+  const cp = checkpoint(root, id);
+  // Attempts describe orchestration, not fabricated tool calls or verification evidence.
+  const attempts = (cp.attempts || []).map(attempt => ({
+    id: 'attempt-' + attempt.id,
+    at: new Date(attempt.ended || attempt.started).toISOString(),
+    tool: 'execution_attempt',
+    error: Boolean(attempt.outcome && !['yielded', 'completed', 'verified_complete'].includes(attempt.outcome)),
+    args: '{}',
+    result: JSON.stringify({text: 'Execution attempt: ' + (attempt.outcome || 'running')})
+  }));
+  const events = [...cp.evidence, ...attempts].sort((a, b) => String(a.at).localeCompare(String(b.at)));
   const items = events.slice(offset, offset + limit).map(event => redact({
     id: event.id,
     at: event.at,
@@ -90,7 +100,8 @@ export function goalReadModels({
   return goals.filter(goal => goal.kind === "goal").map(goal => {
     const row = sessions.get(goal.conversationId),
       runtime = live.get(goal.id) || {};
-    const observations = checkpoint(root, goal.id).evidence;
+    const cp = checkpoint(root, goal.id);
+    const observations = cp.evidence;
     const criteria = (byParent.get(goal.id) || []).filter(t=>!goal.expectedChildIds || goal.expectedChildIds.includes(t.id)).map(criterion => ({
       id: criterion.id,
       title: criterion.title,
@@ -142,7 +153,7 @@ export function goalReadModels({
       liveExecution: {
         state: runtime.busy || runtime.inFlight ? "running" : "idle",
         persistedState: goal.execution?.state || "idle",
-        error: runtime.error || null
+        error: redact(runtime.error || cp.lastError || null)
       },
       execution: goal.execution || null,
       session: row ? {
