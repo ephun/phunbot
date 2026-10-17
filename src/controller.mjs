@@ -160,18 +160,21 @@ export class Controller {
         : null;
     } catch { return null; }
   }
-  canonicalReplyOutput(id, { now = Date.now() } = {}) {
-    const events = (this.checkpoint(id).evidence || [])
-      .filter(e => e.tool === "reply" && !e.error)
-      .reverse();
+  canonicalReplyOutput(id, { revision, now = Date.now() } = {}) {
+    const cp = this.checkpoint(id);
+    if (revision === undefined || (cp.currentRevision !== undefined && cp.currentRevision !== revision)) return null;
+    const events = (cp.evidence || []).filter(e => e.tool === "reply" && !e.error).reverse();
     for (const event of events) {
-      if (Date.parse(event.at) > now) continue;
+      const emittedAt = Date.parse(event.at);
+      if (!Number.isFinite(emittedAt) || emittedAt > now || (event.revision !== undefined && event.revision !== revision)) continue;
       try {
         let value = this.loadEvidenceResult(id, event.id);
         if (Array.isArray(value)) value = value.find(item => item?.type === "text")?.text;
         if (typeof value === "string") value = JSON.parse(value);
-        if (value?.published === true && value.kind === "answer" && typeof value.text === "string" && value.text.trim())
-          return { ...value, evidenceId: event.id, emittedAt: event.at };
+        if (value?.published !== true || value.kind !== "answer" || typeof value.text !== "string" || !value.text.trim()) continue;
+        const outputKey = crypto.createHash("sha256").update(JSON.stringify([id, revision, "answer", value.text])).digest("hex");
+        if (value.outputKey !== outputKey || !(cp.userVisibleOutputs || []).some(o => o.outputKey === outputKey && o.revision === revision && o.kind === "answer" && o.text === value.text)) continue;
+        return { ...value, evidenceId: event.id, emittedAt: event.at };
       } catch {}
     }
     return null;
@@ -498,7 +501,7 @@ export class Controller {
       let evidence;
       try {
       if (v.kind === "answer_quality") {
-        const reply = this.canonicalReplyOutput(id);
+        const reply = this.canonicalReplyOutput(id, { revision: g.revision || 1 });
         const event = this.checkpoint(id).evidence.filter((e) => e.tool === "assistant_output" && !e.error).at(-1);
         const native = this.nativeFinalOutput(id, { revision: g.revision || 1 });
         const output = reply || native;
@@ -527,7 +530,7 @@ export class Controller {
           const reviewEvent = reply
             ? this.checkpoint(id).evidence.find(e => e.id === reply.evidenceId)
             : event;
-          const independent = await this.answerReviewer(g,t,reviewEvent,signal);
+          const independent = await this.answerReviewer(g,t,{...reviewEvent,result:this.loadEvidenceResult(id,reviewEvent.id)},signal);
           if (independent?.pass !== true || typeof independent.reason !== "string" || !independent.reason.trim()) throw Error("Independent answer review rejected: " + (independent?.reason || "invalid verdict"));
           verdict.independentReview = independent;
         }
@@ -724,7 +727,7 @@ export class Controller {
     fs.mkdirSync(path.dirname(blobPath), { recursive: true });
     fs.writeFileSync(blobPath, serialized, { mode: 0o600 });
     const e = {
-      id: eventId, at: new Date().toISOString(), tool,
+      id: eventId, at: new Date().toISOString(), tool, revision: cp.currentRevision ?? 1,
       args: json(safeArgs), result: json(safeResult),
       evidenceBlob: { sha256: crypto.createHash("sha256").update(serialized).digest("hex"), bytes: Buffer.byteLength(serialized) }, error,
     };
@@ -974,7 +977,7 @@ export class Controller {
           await this.verify(id, criterion.id);
         } catch (error) {
           if (
-            !/Native final answer required|No substantive answer|Answer lacks/.test(
+            !/Native final answer required|Canonical visible answer required|No substantive answer|Answer lacks/.test(
               error.message,
             )
           )
