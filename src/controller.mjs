@@ -4,6 +4,7 @@ import { checkAnswer, outcomeContract } from "./outcomes.mjs";
 import { blockerKinds } from "./tool-schemas.mjs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { reviewerEvidence } from "./review-output.mjs";
 
 const secretKey =
   /pass(word)?|token|secret|authorization|api[-_]?key|cookie|credential/i;
@@ -25,15 +26,32 @@ export function redact(value) {
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === "object")
-    return Object.fromEntries(
-      Object.keys(value)
-        .sort()
-        .map((k) => [k, canonical(value[k])]),
-    );
+    return Object.fromEntries(Object.keys(value).sort().map((k) => [k, canonical(value[k])]));
   return value;
 }
+const VOLATILE_FACT_KEYS = /^(?:id|uuid|.*id|at|timestamp|time|date|trace|request|correlation|diagnostic|debug|control|receipt)$/i;
+function factValue(value) {
+  if (Array.isArray(value)) return value.map(factValue);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([k]) => !VOLATILE_FACT_KEYS.test(k)).sort(([a],[b]) => a.localeCompare(b)).map(([k,v]) => [k,factValue(v)]));
+  return value;
+}
+function meaningfulVerificationFacts(events = []) {
+  const excluded = /^(?:goal_(?:plan|state|verify|unblock|blocker)|assistant_output|control(?:_|$)|diagnostic(?:_|$))/i;
+  return [...new Set(events.filter(e => !excluded.test(String(e.tool || ""))).map(e => {
+    let args = e.args, result = e.result;
+    try { args = JSON.parse(args); } catch {}
+    try { result = JSON.parse(result); } catch {}
+    return JSON.stringify(canonical([e.tool, factValue(args), factValue(result), e.error === true]));
+  }))].sort();
+}
 function json(value, limit = 10000) {
-  return JSON.stringify(redact(value)).slice(0, limit);
+  const serialized = JSON.stringify(redact(value));
+  if (serialized.length <= limit) return serialized;
+  return JSON.stringify({
+    truncated: true,
+    sha256: crypto.createHash("sha256").update(serialized).digest("hex"),
+    preview: serialized.slice(0, Math.max(0, limit - 180)),
+  });
 }
 function explicitInitialTextAcknowledgement(value) {
   if (typeof value !== "string") return false;
@@ -96,6 +114,51 @@ export class Controller {
   }
   save(c) {
     atomic(`${this.root}/state/executions/${c.id}.json`, c);
+  }
+  verificationFingerprint(id) {
+    const cp = this.checkpoint(id);
+    return crypto.createHash("sha256").update(JSON.stringify(meaningfulVerificationFacts(cp.evidence || []))).digest("hex");
+  }
+  guardVerificationAttempt(id, taskId, revision) {
+    const cp = this.checkpoint(id);
+    const key = JSON.stringify([taskId, revision ?? null]);
+    const fingerprint = this.verificationFingerprint(id);
+    cp.verificationAttempts ||= {};
+    const prior = cp.verificationAttempts[key];
+    if (prior?.fingerprint === fingerprint && prior.count >= 3)
+      throw Error("Verification attempts exhausted for this failure type; meaningful new evidence required");
+    cp.verificationAttempts[key] = { fingerprint, count: prior?.fingerprint === fingerprint ? prior.count + 1 : 1 };
+    this.save(cp);
+  }
+  guardBlockerAttempt(id, kind) {
+    const cp = this.checkpoint(id);
+    const key = String(kind || "unknown");
+    const fingerprint = this.verificationFingerprint(id);
+    cp.blockerAttempts ||= {};
+    const prior = cp.blockerAttempts[key];
+    if (prior?.fingerprint === fingerprint && prior.count >= 3)
+      throw Error("Blocker attempts exhausted for this failure type; meaningful new evidence required");
+    cp.blockerAttempts[key] = { fingerprint, count: prior?.fingerprint === fingerprint ? prior.count + 1 : 1 };
+    this.save(cp);
+  }
+  evidencePage(id, { limit = 10, before } = {}) {
+    const events = this.checkpoint(id).evidence || [];
+    const bounded = Math.max(1, Math.min(25, Number(limit) || 10));
+    const end = before ? Math.max(0, events.findIndex(e => e.id === before)) : events.length;
+    const start = Math.max(0, end - bounded);
+    return { events: events.slice(start, end), total: events.length, nextBefore: start ? events[start].id : null };
+  }
+  nativeFinalOutput(id, { revision, now = Date.now() } = {}) {
+    const cp = this.checkpoint(id);
+    const event = (cp.evidence || []).filter(e => e.tool === "assistant_output" && !e.error).at(-1);
+    if (!event || (cp.sliceStarted && Date.parse(event.at) < cp.sliceStarted) || (event.revision !== undefined && revision !== undefined && event.revision !== revision)) return null;
+    if (cp.currentRevision !== undefined && revision !== undefined && cp.currentRevision !== revision) return null;
+    try {
+      const value = this.loadEvidenceResult(id, event.id);
+      return value?.source === "Actual Pi assistant output; not independent proof of external state" && typeof value.text === "string" && value.final === true && Date.parse(event.at) <= now
+        ? { ...value, evidenceId: event.id, emittedAt: event.at }
+        : null;
+    } catch { return null; }
   }
   beginSlice(id, now = Date.now()) {
     const cp = this.checkpoint(id);
@@ -374,8 +437,7 @@ export class Controller {
     const before = await this.nc.get(id, signal);
     if ((before.revision || 1) !== revision || ["COMPLETED", "CANCELLED"].includes(before.status)) throw Error("Stale planning decision");
     if (decision.execution === "complete") {
-      await this.assertExecution(id);
-      return this.nc.put({...before,status:"COMPLETED",completionKind:"user-directed",completedAt:new Date().toISOString(),lease:null,needsPlanning:false,execution:{...before.execution,state:"completed",nextRunAt:0}}, before.etag, signal);
+      throw Error("Completion requires an authenticated owner action, not a planning decision");
     }
     const clean = this.validateCriteria(decision.criteria);
     const previous = (await this.nc.list(signal)).filter(t => t.kind === "criterion" && t.parent === id && (!before.expectedChildIds || before.expectedChildIds.includes(t.id)));
@@ -395,10 +457,7 @@ export class Controller {
       }],
       execution: {...current.execution, state: paused ? "paused" : "running"}
     };
-    if (decision.execution === "complete") {
-      next.status = "COMPLETED"; next.completionKind = "user-directed";
-      next.completedAt = new Date().toISOString(); next.lease = null;
-    }
+
     return this.nc.put(next, current.etag, signal);
   }
   safeFile(relative) {
@@ -413,25 +472,20 @@ export class Controller {
     return this.lock(id, async () => {
       signal?.throwIfAborted();
       const g = await this.nc.get(id, signal);
+      if(this.checkpoint(id).state === "verifier_unavailable") throw Error("Verification is suspended pending controlled recovery");
       if (g.invalid || ["CANCELLED", "COMPLETED"].includes(g.status))
         throw Error("Goal is terminal");
       const t = await this.nc.get(taskId, signal);
       if (t.invalid || t.parent !== id || (g.expectedChildIds && !g.expectedChildIds.includes(taskId))) throw Error("Wrong goal or superseded criterion");
+      this.guardVerificationAttempt(id, taskId, g.revision || 1);
       const v = t.verifier;
       let evidence;
+      try {
       if (v.kind === "answer_quality") {
-        const event = this.checkpoint(id)
-          .evidence.filter((e) => e.tool === "assistant_output" && !e.error)
-          .at(-1);
-        let output;
-        try {
-          output = JSON.parse(event?.result || "null");
-        } catch {}
-        if (
-          !output?.final ||
-          output.source !==
-            "Actual Pi assistant output; not independent proof of external state"
-        )
+        const event = this.checkpoint(id).evidence.filter((e) => e.tool === "assistant_output" && !e.error).at(-1);
+        const native = this.nativeFinalOutput(id, { revision: g.revision || 1 });
+        const output = native;
+        if (!output || !event || output.evidenceId !== event.id)
           throw Error("Native final answer required");
         const requests = g.requestHistory?.length ? g.requestHistory : [{text:g.request,images:this.checkpoint(id).inputImages}];
         const contracts = requests.map(request => outcomeContract(request.text, Boolean(request.images?.length)));
@@ -496,7 +550,7 @@ export class Controller {
         const events = initialCriterion ? initial : actual;
         if (!events.length || !review)
           throw Error("Independent reviewer and actual tool evidence required");
-        const r = await review(t, events, g);
+        const r = await review(t, reviewerEvidence(events, (e) => this.loadEvidenceResult(id, e.id)), g);
         if (
           r.pass !== true ||
           !r.reason ||
@@ -508,6 +562,18 @@ export class Controller {
           throw Error("Independent review did not substantiate criterion");
         evidence = { kind: v.kind, ...r };
       } else throw Error("Verifier not implemented");
+      } catch(error) {
+        if(error?.name === "ReviewParseError") {
+          await this.assertExecution(id);
+          const fresh=await this.nc.get(id);
+          if(fresh.revision !== g.revision || fresh.paused || fresh.status!=="NEEDS-ACTION")throw error;
+          const cp=this.checkpoint(id);
+          Object.assign(cp,{state:"verifier_unavailable",nextRunAt:Number.MAX_SAFE_INTEGER,
+            verifierFailure:{code:error.code,revision:g.revision || 1,taskId,fingerprint:this.verificationFingerprint(id)}});
+          this.save(cp);
+        }
+        throw error;
+      }
       signal?.throwIfAborted();
       await this.assertExecution(id);
       const latestGoal = await this.nc.get(id, signal);
@@ -595,13 +661,8 @@ export class Controller {
             (e.tool !== "goal_blocker" || e.error === true),
         )
         .map((e) => {
-          try {
-            return JSON.parse(e.result).policy === "execution_guard"
-              ? JSON.stringify([e.tool, e.args, e.result])
-              : e.id;
-          } catch {
-            return e.id;
-          }
+          try { return JSON.stringify([e.tool, e.args, JSON.parse(e.result)]); }
+          catch { return JSON.stringify([e.tool, e.args, e.result]); }
         });
       revision = [...new Set(facts)].sort();
     }
@@ -612,28 +673,41 @@ export class Controller {
           canonical(
             revision === null
               ? [tool, redact(args)]
-              : [tool, redact(args), revision],
+              : [tool, args?.taskId || args?.criterionId || null, args?.revision ?? args?.goalRevision ?? null, revision],
           ),
         ),
       )
       .digest("hex");
   }
+  loadEvidenceResult(id, evidenceId) {
+    const event = this.checkpoint(id).evidence.find((e) => e.id === evidenceId);
+    if (!event) throw Error("Unknown evidence event");
+    const rawPath = event.evidenceBlob?.path || `${this.root}/state/evidence/${id}/${evidenceId}.json`;
+    try {
+      const raw = fs.readFileSync(rawPath, "utf8");
+      if (event.evidenceBlob?.sha256 && crypto.createHash("sha256").update(raw).digest("hex") !== event.evidenceBlob.sha256) throw Error("Evidence digest mismatch");
+      return JSON.parse(raw);
+    } catch (error) {
+      if (event.evidenceBlob?.sha256) throw error;
+      return JSON.parse(event.result);
+    }
+  }
   record(id, tool, args, result, error = false, dispatchedKey) {
     const cp = this.checkpoint(id);
-    const safeArgs = redact(args),
-      safeResult = redact(result);
+    const safeArgs = redact(args), safeResult = redact(result);
     const fingerprint = dispatchedKey || this.failureKey(tool, args, id);
     if (error) cp.failures[fingerprint] = (cp.failures[fingerprint] || 0) + 1;
+    const eventId = crypto.randomUUID();
+    const serialized = JSON.stringify(safeResult);
+    const blobPath = `${this.root}/state/evidence/${id}/${eventId}.json`;
+    fs.mkdirSync(path.dirname(blobPath), { recursive: true });
+    fs.writeFileSync(blobPath, serialized, { mode: 0o600 });
     const e = {
-      id: crypto.randomUUID(),
-      at: new Date().toISOString(),
-      tool,
-      args: json(safeArgs),
-      result: json(safeResult),
-      error,
+      id: eventId, at: new Date().toISOString(), tool,
+      args: json(safeArgs), result: json(safeResult),
+      evidenceBlob: { sha256: crypto.createHash("sha256").update(serialized).digest("hex"), bytes: Buffer.byteLength(serialized) }, error,
     };
     cp.evidence.push(e);
-    cp.evidence = cp.evidence.slice(-100);
     this.save(cp);
     return e;
   }
@@ -660,7 +734,7 @@ export class Controller {
       );
       if (!events.length || !review)
         throw Error("New actual recovery evidence required");
-      const verdict = await review(g, events);
+      const verdict = await review(g, reviewerEvidence(events, (e) => this.loadEvidenceResult(id, e.id)));
       if (verdict?.pass !== true || !verdict.reason)
         throw Error("Recovery is not substantiated");
       const next = {
@@ -688,8 +762,15 @@ export class Controller {
       if (action === "resume" && !g.paused) return g;
       if (action === "pause" && g.paused) return g;
       const at = new Date().toISOString();
-      const next = {...g, lease:null, revision:(g.revision || 1)+1,
-        lifecycleHistory:[...(g.lifecycleHistory || []),{action,at}],
+      const nextRevision = (g.revision || 1) + 1;
+      const supersededAt = new Date().toISOString();
+      const authorizations = (g.authorizations || []).map((a) =>
+        ["pending", "approved"].includes(a.state)
+          ? { ...a, state: "superseded", supersededAt, supersededByRevision: nextRevision }
+          : a,
+      );
+      const next = {...g, lease:null, revision:nextRevision, authorizations,
+        lifecycleHistory:[...(g.lifecycleHistory || []),{action,at,revision:nextRevision}],
         paused:action === "pause",
         needsPlanning:action === "resume",
         execution:{...g.execution,state:({pause:"paused",resume:"queued",cancel:"cancelled",complete:"completed"})[action],nextRunAt:0}};
@@ -710,6 +791,7 @@ export class Controller {
       const g = await this.nc.get(id);
       if (["COMPLETED", "CANCELLED"].includes(g.status))
         throw Error("Goal is terminal");
+      this.guardBlockerAttempt(id, p.kind);
       const allEvidence = this.checkpoint(id).evidence;
       const events = allEvidence.filter(
         (e) =>
@@ -821,7 +903,7 @@ export class Controller {
         throw Error("Independent blocker review required");
       let verdict;
       if (review) {
-        verdict = await review(g, p, events);
+        verdict = await review(g, p, reviewerEvidence(events));
         if (verdict?.pass !== true || !verdict.reason)
           throw Error(
             "Independent reviewer rejected blocker: " +
@@ -850,6 +932,8 @@ export class Controller {
     );
   }
   async settle(id) {
+    if(this.checkpoint(id).state === 'planner_unavailable') return {continue:false,reason:'planner_unavailable'};
+    if(this.checkpoint(id).state === "verifier_unavailable") return {continue:false,reason:"verifier_unavailable"};
     const current = await this.nc.get(id);
     if (current.invalid)
       return { continue: false, reason: "invalid_goal" };

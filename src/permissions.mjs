@@ -21,6 +21,10 @@ const unraidReads = {
     "timezones",
     "network_interfaces",
   ]),
+  // Registered GraphQL query/subscription routes, not name-based read heuristics.
+  // array/array is not a supported alias; state is system/array.
+  array: new Set(["parity_status"]),
+  live: new Set(["array_state"]),
   disk: new Set(["shares", "disks", "disk_details", "log_files", "logs"]),
   vm: new Set(["list"]),
   health: new Set(["test_connection"]),
@@ -37,6 +41,7 @@ const native = new Set([
   "goal_verify",
   "goal_blocker",
   "goal_unblock",
+  "reply",
 ]);
 const phunbot = new Set([
   "memory_search",
@@ -102,15 +107,7 @@ export function classify(name, args = {}) {
       };
     if (unraidReads[args.action]?.has(args.subaction || ""))
       return { mode: "read" };
-    return {
-      mode: "approval",
-      operation: {
-        name,
-        args,
-        risk: "sensitive",
-        effect: "Host-level administrative operation",
-      },
-    };
+    return { mode: "deny", reason: "Unregistered Unraid operation is not authorized" };
   }
   return { mode: "deny", reason: "Unregistered capability is not authorized" };
 }
@@ -124,14 +121,14 @@ export function capabilityInventory(registered) {
     if (tool.name === "bash") authorization = "denied";
     else if (op)
       authorization =
-        op.risk === "routine" ? "scoped_routine" : "independent_owner";
+        op.risk === "routine" ? "scoped_routine" : "authenticated_chat";
     else {
       const permission = classify(tool.name);
       authorization =
         permission.mode === "deny"
           ? "denied"
           : permission.mode === "approval"
-            ? "independent_owner"
+            ? "authenticated_chat"
             : "scoped_routine";
     }
     return {
@@ -142,7 +139,7 @@ export function capabilityInventory(registered) {
       ...(op ? { risk: op.risk, effect: op.effect } : {}),
       constraints:
         op && op.risk !== "routine"
-          ? "Current management policy, secure transport, exact instance scope and independent signed approval are required. Each call is rechecked."
+          ? "Current management policy, secure transport, exact instance scope and one-use authenticated conversational approval are required. Each call is rechecked."
           : "Runtime argument, cancellation and path restrictions still apply; registration is not blanket authorization.",
     };
   });
@@ -200,13 +197,12 @@ export class Permissions {
       }
       if (
         configuration.ampManagement !== true ||
-        !this.owner?.available() ||
         !transport
       )
         return {
           allowed: false,
           reason:
-            "AMP management requires current explicit policy, independent owner authority and secure transport",
+            "AMP management requires current explicit policy and secure transport",
         };
     }
     if (
@@ -249,7 +245,7 @@ export class Permissions {
       };
     return this.lock(goalId, async () => {
       const goal = await this.nc.get(goalId);
-      if (goal.status !== "NEEDS-ACTION")
+      if (goal.status !== "NEEDS-ACTION" || goal.paused)
         return { allowed: false, reason: "Goal is not open" };
       if (name.endsWith("amp_take_backup") && !/\bbackup\b/i.test(goal.request))
         return {
@@ -264,30 +260,29 @@ export class Permissions {
           allowed: false,
           reason: "Owner explicitly denied this exact operation",
         };
-      const scope = this.scopes().find((scope) => scopeMatches(scope, op));
-      if (scope) {
-        await this.controller.assertExecution?.(goalId);
-        this.controller.record(
-          goalId,
-          "owner_scope_used",
-          { tool: name, instanceId: op.instanceId },
-          { scopeId: scope.id, operationHash: hash },
-          false,
-        );
-        return { allowed: true, authorizationId: scope.id, operation: op };
-      }
+      // Legacy reusable signed scopes are audit artifacts, not chat execution grants.
+      const revision = goal.revision || 1;
       const approved = items.find(
         (item) =>
           item.hash === hash &&
           item.state === "approved" &&
-          item.ownerProof?.kind === "exact" &&
+          item.goalRevision === revision &&
+          item.risk === op.risk &&
+          ((item.conversationReceipt?.kind === "authenticated-chat" &&
+            item.goalRevision === revision &&
+            item.conversationReceipt.conversationId === goal.conversationId &&
+            item.conversationReceipt.hash === hash &&
+            item.conversationReceipt.effect === op.effect &&
+            item.conversationReceipt.risk === op.risk &&
+            item.conversationReceipt.expiresAt > Date.now()) ||
+          (item.ownerProof?.kind === "exact" &&
           item.ownerProof?.risk === op.risk &&
           (op.risk !== "sensitive" ||
             item.ownerProof?.acknowledgedSensitive === true) &&
           item.ownerProof?.goalId === goalId &&
           item.ownerProof?.requestId === item.id &&
           item.ownerProof?.hash === hash &&
-          this.owner?.verify(item.ownerProof),
+          this.owner?.verify(item.ownerProof))),
       );
       if (approved) {
         await this.controller.assertExecution?.(goalId);
@@ -305,8 +300,11 @@ export class Permissions {
           throw Error("Approval consumption readback failed");
         return { allowed: true, authorizationId: approved.id, operation: op };
       }
+      if (items.some(item => item.hash === hash && item.state === "consumed" &&
+          (item.goalRevision || revision) === revision))
+        return {allowed:false, reason:"This exact operation has already consumed its authorization; verify its outcome instead of repeating it"};
       let pending = items.find(
-        (item) => item.hash === hash && item.state === "pending",
+        (item) => item.hash === hash && item.state === "pending" && item.goalRevision === revision,
       );
       if (!pending) {
         if (items.filter((item) => item.state === "pending").length >= 5)
@@ -319,6 +317,9 @@ export class Permissions {
           tool: name,
           args,
           hash,
+          goalId,
+          goalRevision: revision,
+          conversationId: goal.conversationId,
           risk: op?.risk || "sensitive",
           effect: op?.effect,
           state: "pending",
@@ -335,18 +336,78 @@ export class Permissions {
         {
           policy: "owner_authorization",
           requestId: pending.id,
-          reason: "Independent signed owner authorization required",
+          reason: "Waiting for the authenticated user response in chat",
         },
         true,
       );
       return {
         allowed: false,
         requestId: pending.id,
-        reason:
-          "Independent owner authorization required for exact operation " +
-          pending.id +
-          ". Inspect it in the browser; approve through the local owner CLI, never the ordinary chat bearer. Continue safe diagnostics or preserve the pending goal.",
+        question: this.question(pending),
+        reason: "Waiting for your response in the conversation. Do not retry the operation until permission is resolved.",
       };
+    });
+  }
+  question(item) {
+    const target = item.args?.instanceId || "the specified target";
+    const consequences = /restart|stop|sleep|end_user_session/.test(item.tool)
+      ? " This may interrupt the application and disconnect connected users."
+      : item.risk === "sensitive" ? " This may overwrite or remove existing data." : " This changes the target's state.";
+    return `${item.effect} on ${target}.${consequences}\nExact operation: ${item.tool}\nArguments: ${JSON.stringify(item.args)}\nMay I proceed?`;
+  }
+  async markPresented(goalId, requestId, {conversationId,messageId} = {}) {
+    if (typeof messageId !== "string" || !messageId || typeof conversationId !== "string")
+      throw Error("A canonical conversation question identity is required");
+    return this.lock(goalId,async()=>{
+      const goal=await this.nc.get(goalId);
+      const items=structuredClone(goal.authorizations || []);
+      const item=items.find(item=>item.id===requestId && item.state==="pending");
+      if(goal.status!=="NEEDS-ACTION" || goal.conversationId!==conversationId || !item || item.goalRevision!==(goal.revision || 1))
+        throw Error("Permission question was superseded before presentation");
+      item.presented={conversationId,messageId,goalRevision:item.goalRevision,at:new Date().toISOString()};
+      const saved=await this.nc.put({...goal,authorizations:items},goal.etag);
+      if(saved.authorizations?.find(a=>a.id===requestId)?.presented?.messageId!==messageId)
+        throw Error("Permission question readback failed");
+      return saved;
+    });
+  }
+  // Called only by authenticated HTTP user-turn admission, never registered as a model tool.
+  async decideConversation(goalId, requestId, approve, context) {
+    const positive = /^(?:yes|yes please|yep|yeah|sure|approved?|go ahead|proceed|do it)[.!\s]*$/i;
+    const negative = /^(?:no|no thanks|no thank you|nope|deny|do not|don't)[.!\s]*$/i;
+    if (context?.authenticated !== true || context.principal !== "authenticated-owner" ||
+        typeof context.requestId !== "string" || !context.requestId || context.requestId.length > 200 ||
+        !(approve ? positive : negative).test(context.text || ""))
+      throw Error("An exact authenticated user decision is required");
+    return this.lock(goalId, async () => {
+      const goal = await this.nc.get(goalId);
+      if (goal.status !== "NEEDS-ACTION" || goal.conversationId !== context.conversationId)
+        throw Error("Authorization does not belong to this open conversation");
+      const items = structuredClone(goal.authorizations || []);
+      if (items.some(item => item.conversationReceipt?.requestId === context.requestId))
+        throw Error("This user message already decided an operation");
+      const item = items.find(item => item.id === requestId && item.state === "pending");
+      if (!item || item.goalId !== goalId || item.goalRevision !== (goal.revision || 1) ||
+          item.conversationId !== goal.conversationId)
+        throw Error("Authorization proposal is stale or not pending");
+      if (approve && (!item.presented?.messageId || item.presented.conversationId !== goal.conversationId ||
+          item.presented.goalRevision !== (goal.revision || 1)))
+        throw Error("Permission question has not been presented in this conversation");
+      const op = classify(item.tool,item.args);
+      if (op.mode !== "approval" || effectHash(item.tool,item.args) !== item.hash ||
+          op.operation?.effect !== item.effect || op.operation?.risk !== item.risk)
+        throw Error("Authorization target or consequences changed");
+      item.state = approve ? "approved" : "denied";
+      item.conversationReceipt = {kind:"authenticated-chat",principal:context.principal,
+        conversationId:context.conversationId,requestId:context.requestId,text:context.sourceText || context.text,
+        goalId,goalRevision:item.goalRevision,authorizationId:item.id,proposalMessageId:item.presented?.messageId,hash:item.hash,effect:item.effect,risk:item.risk,
+        decidedAt:new Date().toISOString(),expiresAt:Date.now()+900000};
+      const next = {...goal,authorizations:items,execution:{...goal.execution,nextRunAt:0}};
+      if (next.blocker?.kind === "authorization") delete next.blocker;
+      const readback = await this.nc.put(next,goal.etag);
+      if (readback.authorizations?.find(entry=>entry.id===item.id)?.state !== item.state)
+        throw Error("Conversation decision readback failed");
+      return readback;
     });
   }
   async decide(goalId, requestId, approve, proof) {

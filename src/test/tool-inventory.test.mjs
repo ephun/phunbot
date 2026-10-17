@@ -13,7 +13,7 @@ test("tool inventory projects only actual registered capabilities and states ind
   assert.equal(tools.find((t) => t.name === "bash").authorization, "denied");
   assert.equal(
     tools.find((t) => t.name.endsWith("amp_restart_instance")).authorization,
-    "independent_owner",
+    "authenticated_chat",
   );
   assert.equal(
     tools.find((t) => t.name.endsWith("amp_get_instance_status")).authorization,

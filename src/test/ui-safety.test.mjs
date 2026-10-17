@@ -3,6 +3,7 @@ import {
 } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {appendConversationOutput} from '../conversation-output.mjs';
 import {
   prototypeFixture,
   conversationId
@@ -38,6 +39,8 @@ test('search reads canonical visible history without initializing a model or exp
       },
       stopReason: 'stop'
     });
+    assert.deepEqual(await f.api('search?q=visible-canary-answer'), []); // raw model text remains private
+    appendConversationOutput(manager,'answer','visible-canary-answer');
     assert.equal((await f.api('search?q=visible-canary-answer'))[0].id, conversationId('minecraft'));
     assert.deepEqual(await f.api('search?q=secret-canary-thought'), []);
     assert.ok((await f.api('search?q=protocol')).some(x => x.kind === 'chat' && x.id === conversationId('mcp')));
@@ -125,6 +128,8 @@ test('read receipts persist only an exact visible response identity and ignore t
       },
       stopReason: 'stop'
     });
+    assert.equal((await f.api('sessions')).find(r=>r.id===id).unread,false); // raw final is not publication
+    appendConversationOutput(manager,'answer','A new controlled response');
     const rejected = await fetch(f.base + '/api/' + route + '/read', {
       method: 'POST',
       headers: {

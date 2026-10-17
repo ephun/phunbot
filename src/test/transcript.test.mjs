@@ -102,8 +102,7 @@ test("browser projection excludes provider reasoning and redacts trace credentia
   assert.ok(!JSON.stringify(projected).includes("PRIVATE_REASONING"));
   assert.ok(!JSON.stringify(projected).includes("synthetic-secret"));
   assert.ok(!JSON.stringify(projected).includes("x".repeat(30)));
-  assert.ok(
-    JSON.stringify(projected).includes("Inspectable acceptance progress"),
-  );
+  assert.ok(!JSON.stringify(projected).includes("Inspectable acceptance progress"));
+  assert.ok(JSON.stringify(manager.getBranch()).includes("Inspectable acceptance progress"));
   assert.ok(JSON.stringify(manager.getBranch()).includes("PRIVATE_REASONING"));
 });

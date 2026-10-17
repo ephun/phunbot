@@ -70,11 +70,8 @@ export function outcomeContract(request, hasImages = false) {
     return { kind: "arithmetic", expected, verifier: "answer_quality" };
   if (
     !external.test(request) &&
-    (/^\s*(?:hi|hello|hey|thanks|thank you|ok|okay)[.! ]*$/i.test(request) ||
-      (/^\s*(?:what is|what are|explain|define|why does|how does|tell me about)\b/i.test(
-        request,
-      ) &&
-        !/\band\b|[;\n]|\?.+\S|\b(?:then|also|plus)\b/i.test(request)))
+    request.trim() &&
+    !/\band\b|[;\n]|\?.+\S|\b(?:then|also|plus)\b/i.test(request)
   )
     return { kind: "answer", verifier: "answer_quality" };
   return { kind: "explicit", verifier: null };

@@ -9,6 +9,7 @@ import {
 import {
   start
 } from '../app.mjs';
+import { appendConversationOutput, ensureConversationProjection } from '../conversation-output.mjs';
 export const specimen = JSON.parse(fs.readFileSync(new URL('./fixtures/prototype-ui.json', import.meta.url)));
 export const conversationId = name => crypto.createHash('sha256').update(name).digest('hex').slice(0, 32);
 export class FixtureTasks {
@@ -61,25 +62,20 @@ export async function prototypeFixture() {
   const catalog = specimen.chats.map(c => {
     const manager = SessionManager.create(root + '/work', root + '/state/pi-sessions');
     managers.set(conversationId(c.id), manager);
-    c.history.forEach((m, i) => manager.appendMessage({
-      role: m.kind,
-      content: m.kind === 'user' ? m.text : [{
-        type: 'text',
-        text: m.text
-      }],
-      timestamp: 1760000000000 + i,
-      ...(m.kind === 'assistant' ? {
-        api: 'test',
-        provider: 'fixture',
-        model: 'fixture',
-        usage: {
-          input: 0,
-          output: 0,
-          totalTokens: 0
-        },
-        stopReason: 'stop'
-      } : {})
-    }));
+    c.history.forEach((m, i) => {
+      if (m.kind !== 'user') return;
+      manager.appendMessage({
+        role: 'user',
+        content: [{ type: 'text', text: m.text }],
+        timestamp: 1760000000000 + i
+      });
+    });
+    // The fixture deliberately exercises the trusted output boundary: final
+    // answers/questions are explicit, while native assistant/tool chatter is
+    // never treated as user-facing history.
+    ensureConversationProjection(manager);
+    c.history.filter(m => m.kind === 'assistant').forEach(m =>
+      appendConversationOutput(manager, m.text.endsWith('?') ? 'question' : 'answer', m.text));
     return {
       id: conversationId(c.id),
       title: c.name,
@@ -108,8 +104,8 @@ export async function prototypeFixture() {
       },
       ...(g.status === 'blocked' ? {
         blocker: {
-          kind: g.block === 'approval' ? 'authorization' : 'information',
-          reason: g.block === 'approval' ? 'Waiting for your approval' : 'Waiting for your answer'
+          kind: 'information',
+          reason: 'Waiting for your response in this conversation.'
         }
       } : {})
     };
