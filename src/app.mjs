@@ -53,7 +53,7 @@ import { evictable } from "./runtime-cache.mjs";
 import { Admissions } from "./admission.mjs";
 import { GoalQueue, dryRunGoalMigration } from "./goal-queue.mjs";
 import { outcomeContract } from "./outcomes.mjs";
-import { planGoal, reviewGoalAnswer } from "./planning.mjs";
+import { planGoal, reviewGoalAnswer, PlanningTransportError } from "./planning.mjs";
 import {PlanningDecisionError} from './planning-decision.mjs';
 import { deliverGoalRequests } from "./goal-delivery.mjs";
 import { blockerKindSchema, verificationSchema } from "./tool-schemas.mjs";
@@ -994,7 +994,9 @@ export async function start({
       const key=`planner:${goalId}:${revision}`;
       const manager=rt.session.sessionManager;
       if(!manager.getBranch().some(e=>e.type==='custom' && e.customType==='conversation-output' && e.data?.outputKey===key))
-        appendConversationOutput(manager,'system-notice',"I couldn't prepare a reliable plan for this request after two attempts. No work has been marked complete. I've stopped automatic retries; a new message with more context can start another planning attempt.",{outputKey:key});
+        appendConversationOutput(manager,'system-notice',cp.plannerFailure?.code==='planner_transport_failed'
+          ? "The planning service couldn't process this request after two attempts. Your request is still open, and no work has been marked complete. I've stopped automatic retries. Send another message to try again."
+          : "I couldn't prepare a reliable plan for this request after two attempts. No work has been marked complete. I've stopped automatic retries; a new message with more context can start another planning attempt.",{outputKey:key});
       return true;
     }
     if(decision.reason==="verifier_unavailable") {
@@ -1154,10 +1156,10 @@ export async function start({
         await publishSettledNativeOutput(row, goalId, rt, decision);
       }
     } catch (error) {
-      if(error instanceof PlanningDecisionError && row.epoch===epoch && !row.cancelRequested && await goalQueue.valid(goalId,leaseToken)) {
+      if((error instanceof PlanningDecisionError || error instanceof PlanningTransportError) && row.epoch===epoch && !row.cancelRequested && await goalQueue.valid(goalId,leaseToken)) {
         const fresh=await nc.get(goalId);
         if((fresh.revision||1)===(goal.revision||1)) {
-          tasks().save({...tasks().checkpoint(goalId),state:'planner_unavailable',nextRunAt:Number.MAX_SAFE_INTEGER,plannerFailure:{...error.diagnostics,revision:fresh.revision||1},lastError:'Deep planning could not produce a valid plan'});
+          tasks().save({...tasks().checkpoint(goalId),state:'planner_unavailable',nextRunAt:Number.MAX_SAFE_INTEGER,plannerFailure:{...error.diagnostics,code:error.code || 'invalid_decision',revision:fresh.revision||1},lastError:error instanceof PlanningTransportError ? 'Deep planning request failed' : 'Deep planning could not produce a valid plan'});
           row.error=null;if(rt)rt.error=null;
           completeRun(row,epoch,'planner_unavailable');
           await publishSettledNativeOutput(row,goalId,rt,{reason:'planner_unavailable'});

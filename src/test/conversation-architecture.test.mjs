@@ -7,7 +7,7 @@ import {SessionManager} from '@earendil-works/pi-coding-agent';
 import {start} from '../app.mjs';
 import {GoalQueue, dryRunGoalMigration} from '../goal-queue.mjs';
 import {Controller} from '../controller.mjs';
-import {planGoal,reviewGoalAnswer} from '../planning.mjs';
+import {planGoal,reviewGoalAnswer,PlanningTransportError} from '../planning.mjs';
 import {deliverGoalRequests} from '../goal-delivery.mjs';
 import {Agent} from '@earendil-works/pi-agent-core';
 
@@ -73,6 +73,22 @@ test('pause fences active work and unattended recovery, incidental input only pl
   const fresh=new Controller(f.root,f.nc);assert.equal((await f.nc.get(a.data.goalId)).completionKind,'user-directed');assert.equal((await f.nc.get(criteria[0])).status,'NEEDS-ACTION');await assert.rejects(()=>fresh.resumeGoal(a.data.goalId),/terminal/);
   const next=await f.api('sessions/'+c.id+'/send',input('c','Additional research',c.id));assert.notEqual(next.data.goalId,a.data.goalId);await f.api('sessions/'+c.id+'/cancel',{goalId:next.data.goalId});
   await f.server.resumeGoals();assert.equal((await f.nc.get(next.data.goalId)).status,'CANCELLED');await assert.rejects(()=>fresh.resumeGoal(next.data.goalId),/terminal/);
+ }finally{await f.close();}
+});
+
+test('exhausted planner transport stops unchanged automatic retries and keeps the request open',async()=>{
+ const f=await fixture({decisionFor:()=>{throw new PlanningTransportError(2);}});try{
+  const {data:c}=await f.api('sessions',{});
+  const sent=await f.api('sessions/'+c.id+'/send',input('transport-failure','Hi.',c.id));
+  await until(async()=>{const rows=(await f.api('sessions')).data;return rows.find(r=>r.id===c.id)?.busy===false;});
+  const cp=JSON.parse(fs.readFileSync(f.root+'/state/executions/'+sent.data.goalId+'.json'));
+  assert.equal(cp.state,'planner_unavailable');
+  assert.equal(cp.plannerFailure.code,'planner_transport_failed');
+  assert.equal((await f.nc.get(sent.data.goalId)).status,'NEEDS-ACTION');
+  const calls=f.plans.length;await f.server.resumeGoals();await f.server.resumeGoals();assert.equal(f.plans.length,calls);
+  const messages=(await f.api('sessions/'+c.id+'/messages')).data;
+  assert.equal(messages.error,null);
+  assert.equal(messages.messages.filter(m=>m.kind==='system-notice').length,1);
  }finally{await f.close();}
 });
 
