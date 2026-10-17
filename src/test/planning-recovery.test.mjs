@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {planGoal} from '../planning.mjs';
+import {planGoal,PlanningTransportError,reviewGoalAnswer} from '../planning.mjs';
 import {parsePlanningDecision,planningProperties} from '../planning-decision.mjs';
 const goal={id:'isolated',request:'What do you know about me?',title:'What do you know about me?',revision:1,requestHistory:[{text:'What do you know about me?'}]};
 const policy={provider:'fixture',roles:{planner:'deep'}};
@@ -21,6 +21,21 @@ test('planner retries one transient transport failure without treating failure a
  const decision=await planGoal(runtime,policy,goal,[],[],[]);
  assert.equal(decision.title,'Answer the question');assert.equal(calls,2);
 });
+test('planner classifies repeated transport failures without exposing provider details',async()=>{
+ let calls=0;const runtime={getModel:()=>({id:'deep'}),completeSimple:async()=>{calls++;return {stopReason:'error',errorMessage:'PRIVATE_PROVIDER_DETAIL'}}};
+ await assert.rejects(planGoal(runtime,policy,goal,[],[],[]),e=>e instanceof PlanningTransportError && e.code==='planner_transport_failed' && e.diagnostics.attempts===2 && !JSON.stringify(e).includes('PRIVATE_PROVIDER_DETAIL'));
+ assert.equal(calls,2);
+});
+
+test('answer reviewer receives canonical published reply or native final output, including actual result text',async()=>{
+ let context;
+ const runtime={getModel:()=>({id:'reviewer'}),completeSimple:async(m,c)=>{context=c;return {stopReason:'stop',content:[{type:'text',text:'{"pass":true,"reason":"Actual answer supplied."}'}]};}};
+ const result=await reviewGoalAnswer(runtime,{provider:'fixture',roles:{reviewer:'deep'}},goal,{title:'Answer quality',verifier:{kind:'answer_quality',path:'',text:''}},{tool:'synthetic_answer',result:'ACTUAL_TOOL_RESULT_ANSWER'});
+ assert.equal(result.pass,true);
+ assert.match(context.systemPrompt,/canonical published reply|native final output/i);
+ assert.match(context.messages[0].content[0].text,/ACTUAL_TOOL_RESULT_ANSWER/);
+});
+
 test('planner rejects schema drift, truncation, invalid criteria and subgoal graphs without coercion',()=>{
  const cases=[
   [v=>{v.title=' ';},'title','string_bounds'],
