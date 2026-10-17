@@ -458,6 +458,9 @@ export class Controller {
     if (decision.execution === "complete") {
       throw Error("Completion requires an authenticated owner action, not a planning decision");
     }
+    if (decision.execution === "pause" && !before.paused) {
+      throw Error("Pause requires an authenticated owner action, not a planning decision");
+    }
     const clean = this.validateCriteria(decision.criteria);
     const previous = (await this.nc.list(signal)).filter(t => t.kind === "criterion" && t.parent === id && (!before.expectedChildIds || before.expectedChildIds.includes(t.id)));
     await this.plan(id, clean, signal, undefined, revision);

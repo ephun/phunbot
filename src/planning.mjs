@@ -33,6 +33,7 @@ export async function planGoal(runtime, policy, goal, history, criteria, evidenc
   // Repeat the contract in model-visible instructions: an accepted schema
   // transport is not proof that upstream generation honored that schema.
   context.systemPrompt += ' Return exactly these top-level fields: title, description, criteria, subgoals, changes, execution. Do not nest them in goal or substitute action. All fields are required, including empty arrays. JSON schema: '+JSON.stringify({type:'object',properties,required:Object.keys(properties),additionalProperties:false});
+  context.systemPrompt += ' You cannot introduce a new pause: if goal.paused is not true, do not choose pause. Only an authenticated owner Pause action changes an active goal to paused. A historical lease expiration or superseded attempt is controller bookkeeping, not a need for new owner permission. Continue answering ordinary follow-ups such as Huh? using the current instructions.';
   for(let attempt=1;attempt<=2;attempt++) {
     boundedSignal.throwIfAborted();
     const result=await runtime.completeSimple(model,context,{maxTokens:5000,signal:boundedSignal,onPayload:p=>structuredPayload(p,properties)});
@@ -41,7 +42,11 @@ export async function planGoal(runtime, policy, goal, history, criteria, evidenc
       context={...context,systemPrompt:context.systemPrompt+' The previous planner transport attempt failed. Make one bounded retry of the same request and return the complete decision; do not treat the transport failure as a plan.'};
       continue;
     }
-    try{return parsePlanningDecision(result);}catch(error){
+    try{
+      const decision=parsePlanningDecision(result);
+      if(decision.execution==='pause' && !goal.paused)throw new PlanningDecisionError([{path:'execution',code:'new_pause_requires_owner'}]);
+      return decision;
+    }catch(error){
       if(!(error instanceof PlanningDecisionError))throw error;
       if(attempt===2)throw new PlanningDecisionError(error.diagnostics.issues,attempt);
       // Never reflect raw output, reasoning, or validation values back.
