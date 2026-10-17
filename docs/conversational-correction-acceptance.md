@@ -40,7 +40,7 @@ Checked items below mean **verified on the integrated candidate in isolation**, 
 - [x] Native Pi fault integration.
 - [x] Browser acceptance, prototype geometry and static UI smoke.
 - [x] Independent authority/security and correctness review resolved for this exact candidate (fresh read-only review: no security concerns or logic errors; reviewed source-file hashes matched the frozen candidate).
-- [ ] Sanitized reviewable PR published; exact integrated source/test hashes recorded.
+- [x] Sanitized reviewable PR published: [PR #5](https://github.com/ephun/phunbot/pull/5), stacked on PR #4. Exact integrated source/test hashes recorded below; implementation commit `4fbeaaa35717ca884be1db679afa662304576770` was read back as the published head before this checklist-only update.
 - [x] Migration and rollback instructions ready; no live history edits.
 - [ ] Separately authorized deployment and live acceptance: exact initial question, actual relevant-memory answer, accepted criteria, verification/completion, operation-specific chat authorization, malformed planner/verifier recovery, and target screenshots. No production restart/deployment has occurred in this correction.
 
