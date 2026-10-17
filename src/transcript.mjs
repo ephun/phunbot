@@ -1,4 +1,15 @@
 import { redact } from "./controller.mjs";
+import { conversationVisibility, ensureConversationProjection } from "./conversation-output.mjs";
+
+export function appendCanonicalUserTurn(manager, text, { requestId, goalId, timestamp = Date.now(), images = [] } = {}) {
+  if (!manager?.appendMessage || typeof text !== "string" || !text.trim()) throw new TypeError("canonical user turn requires text");
+  const existing = manager.getBranch?.().some((entry) => entry?.type === "message" && entry.message?.phunbotRequestId === requestId);
+  if (requestId && existing) return false;
+  manager.appendMessage({ role: "user", timestamp, ...(requestId ? { phunbotRequestId: requestId } : {}), ...(goalId ? { phunbotGoalId: goalId } : {}), content: [{ type: "text", text }, ...images.map((image) => ({ type: "image", ...image }))] });
+  return true;
+}
+
+export { ensureConversationProjection };
 
 export function requestDelivered(manager, goalId, request) {
   let active = false;
@@ -50,49 +61,12 @@ function publicContent(content) {
       return [{ type: "text", text: redact(part.text) }];
     if (part.type === "image")
       return [{ type: "image", mimeType: part.mimeType, data: part.data }];
-    if (part.type === "toolCall")
-      return [
-        {
-          type: "toolCall",
-          id: part.id,
-          name: part.name,
-          arguments: redact(part.arguments),
-        },
-      ];
     return [];
   });
 }
 export function conversationMessages(session) {
-  return session.sessionManager
-    .getBranch()
-    .flatMap((entry) =>
-      entry.type === "message"
-        ? ["user", "assistant", "toolResult"].includes(entry.message.role)
-          ? [
-              {
-                role: entry.message.role,
-                timestamp: entry.message.timestamp,
-                content: publicContent(entry.message.content),
-                ...(entry.message.toolName
-                  ? {
-                      toolName: entry.message.toolName,
-                      toolCallId: entry.message.toolCallId,
-                      isError: entry.message.isError,
-                    }
-                  : {}),
-              },
-            ]
-          : []
-        : entry.type === "custom_message" && entry.display
-          ? [
-              {
-                role: "custom",
-                customType: entry.customType,
-                content: publicContent(entry.content),
-                display: true,
-              },
-            ]
-          : [],
-    )
-    .filter((m) => m.role !== "custom" || m.display !== false);
+  return conversationVisibility(session, { redact }).map((message) => ({
+    ...message,
+    content: publicContent(message.content),
+  }));
 }

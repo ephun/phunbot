@@ -32,7 +32,7 @@ class Tasks {
 }
 const input=(requestId,text='What is recursion?',conversationId='c')=>({requestId,text,conversationId,model:'fast'});
 async function until(fn){for(let i=0;i<200;i++){if(await fn())return;await new Promise(r=>setTimeout(r,10));}throw Error('Expected current state not reached');}
-const decision=g=>({title:g.title,description:g.request,criteria:[{title:'Observe the requested outcome',verifier:{kind:'evidence_review'}}],subgoals:[],changes:['Incorporate revision '+g.revision],execution:g.paused?'pause':'continue'});
+const decision=g=>({title:g.title,description:g.request,criteria:[{title:'Observe the requested outcome',verifier:{kind:'evidence_review',path:'',text:''}}],subgoals:[],changes:['Incorporate revision '+g.revision],execution:g.paused?'pause':'continue'});
 async function fixture({decisionFor=decision}={}){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'phunbot-goal-native-'));
  fs.mkdirSync(root+'/config');fs.writeFileSync(root+'/config/policy.json',JSON.stringify({provider:'fixture',roles:{executor:'fast',reviewer:'deep'},limits:{maxActiveGoals:2,sliceMs:60000},maintenance:{}}));
@@ -216,5 +216,5 @@ test('planning and answer verification use separate configured deep operations a
  const calls=[];const runtime={getModel:(provider,id)=>{assert.equal(provider,'configured');assert.equal(id,'deep');return {id};},completeSimple:async(_m,p)=>{calls.push(p);return {content:[{type:'text',text:JSON.stringify(p.systemPrompt.includes('deep goal planner')?decision({title:'Q',request:'What is recursion?'}):{pass:true,reason:'Answer independently checked'})}]};}};
  const policy={provider:'configured',roles:{executor:'fast',reviewer:'deep'}};
  await planGoal(runtime,policy,{request:'What is recursion?'},[],[],[]);await reviewGoalAnswer(runtime,policy,{}, {},{tool:'assistant_output'});assert.equal(calls.length,2);assert.notEqual(calls[0].systemPrompt,calls[1].systemPrompt);
- await assert.rejects(()=>planGoal({...runtime,completeSimple:async()=>({content:[{type:'text',text:'{"title":"x"}'}]})},policy,{},[],[],[]),/Invalid structured/);
+ await assert.rejects(()=>planGoal({...runtime,completeSimple:async()=>({content:[{type:'text',text:'{"title":"x"}'}]})},policy,{},[],[],[]),/valid plan/);
 });

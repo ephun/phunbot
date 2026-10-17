@@ -99,6 +99,9 @@ try {
   await page.locator('#token').fill('fixture');
   await page.locator('#login-form').evaluate(e => e.requestSubmit());
   await page.waitForFunction(() => document.querySelector('#messages').textContent.includes('The proxy responds locally'));
+  assert.equal(await page.locator('.message.assistant').evaluateAll(nodes => nodes.every(n => n.textContent.trim())), true);
+  assert.equal(await page.locator('.copy-message').count(), await page.locator('.message.assistant').count());
+  check('No empty assistant bubbles or orphan copy controls on desktop');
   await page.mouse.move(1400, 800);
   await capture(page, 'implemented-desktop-conversation');
   const implementedRects = {
@@ -141,6 +144,9 @@ try {
     height: 844
   });
   await capture(page, 'implemented-mobile-conversation');
+  assert.equal(await page.locator('.message.assistant').evaluateAll(nodes => nodes.every(n => n.textContent.trim())), true);
+  assert.equal(await page.locator('.copy-message').count(), await page.locator('.message.assistant').count());
+  check('No empty assistant bubbles or orphan copy controls on mobile');
   const mobileRects = {
     messages: await rect(page, '.messages'),
     user: await rect(page, '.message.user'),
@@ -244,13 +250,9 @@ try {
     timestamp: Date.now(),
     isError: false
   });
-  await page.waitForSelector('#trace-panel:not([hidden])');
-  assert.equal(await page.locator('#trace-panel[open]').count(), 0);
-  await page.locator('#trace-panel>summary').click();
-  await page.locator('#traces summary').first().click();
-  assert.ok((await page.locator('#traces').textContent()).includes('memory_read'));
-  assert.ok(!(await page.locator('body').textContent()).includes('NEVER_DISPLAY_THOUGHT'));
-  check('Canonical tool calls are inspectable and collapsed by default; provider thinking stays excluded');
+  assert.equal(await page.locator('.message.assistant:has-text("NEVER_DISPLAY_THOUGHT")').count(), 0);
+  assert.ok(!(await page.locator('body').textContent()).includes('memory_read'));
+  check('Internal thinking/tool chatter is audit-only and absent from the normal transcript');
   // Actual image input, removal, then real send/admission, not a fake UI acknowledgement.
   const image = {
     name: 'pixel.png',
@@ -305,32 +307,15 @@ try {
   await page.locator('.goalrow').filter({
     hasText: 'Restore external Minecraft'
   }).click();
-  await page.waitForSelector('.authorization');
-  assert.equal(await page.getByRole('button', {
-    name: 'Approve',
-    exact: true
-  }).count(), 0);
-  assert.ok((await page.locator('.authorization').textContent()).includes('owner-cli.mjs approve minecraft fixture-approval'));
-  const deniedApproval = await fetch(fixture.base + '/api/sessions/' + conversationId('minecraft') + '/authorizations', {
-    method: 'POST',
-    headers: {
-      Authorization: 'Bearer fixture',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      goalId: 'minecraft',
-      requestId: 'fixture-approval',
-      approve: true
-    })
-  });
-  assert.equal(deniedApproval.status, 400);
-  assert.equal((await fixture.nc.get('minecraft')).authorizations[0].state, 'pending');
-  await page.getByRole('button', {
-    name: 'Deny',
-    exact: true
-  }).click();
-  await until(async () => (await fixture.nc.get('minecraft')).authorizations[0].state === 'denied');
-  check('Browser cannot bypass independent owner approval; exact-goal denial works');
+  assert.equal(await page.locator('.authorization').count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Approve', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Deny', exact: true }).count(), 0);
+  assert.match(await page.locator('.wait-strip').innerText(), /Waiting for your response/);
+  assert.equal(await page.locator('.wait-strip button').count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Pause', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Cancel', exact: true }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Complete', exact: true }).count(), 1);
+  check('No authorization controls; waiting status links to chat and lifecycle controls remain');
   const touch = await browser.newContext({
     viewport: {
       width: 390,

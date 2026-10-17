@@ -14,6 +14,7 @@ import crypto from "node:crypto";
 import {
   start
 } from "../app.mjs";
+import { appendConversationOutput } from "../conversation-output.mjs";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "phunbot-browser-"));
 const output =
@@ -61,19 +62,8 @@ for (const id of ids) {
       text: "Explain recursion with an example."
     }],
   });
-  manager.appendCustomMessageEntry(
-    "goal-controller",
-    "Internal controller state — inspect only",
-    true,
-  );
-  manager.appendMessage({
-    role: "assistant",
-    timestamp: 2000,
-    content: [{
-      type: "text",
-      text: "## A clear answer\n\nRecursion solves **smaller instances** of the same problem.\n\n| Part | Purpose |\n|---|---|\n| Base case | Stop |\n| Recursive step | Reduce |\n\n```javascript\nconst answer = 42;\n```\n\n[Reference](https://example.org)\n<script>window.PHUNBOT_UNSAFE=1</script>",
-    }, ],
-  });
+  appendConversationOutput(manager, "answer", "## A clear answer\n\nRecursion solves **smaller instances** of the same problem.\n\n| Part | Purpose |\n|---|---|\n| Base case | Stop |\n| Recursive step | Reduce |\n\n```javascript\nconst answer = 42;\n```\n\n[Reference](https://example.org)\n<script>window.PHUNBOT_UNSAFE=1</script>");
+  manager.appendCustomMessageEntry("goal-controller", "Internal controller state — inspect only", true);
   manager.appendMessage({
     role: "toolResult",
     timestamp: 3000,
@@ -110,18 +100,9 @@ nc.data.set("browser-goal", {
   status: "NEEDS-ACTION",
   planRevisions: [{revision:1,previousDescription:'Historical controlled plan',criteria:[{id:'historical-criterion',title:'Historical readback',disposition:'superseded',accepted:true,verifier:{kind:'evidence_review'},evidence:{verificationId:'historical-receipt',evidenceIds:['historical-observation'],reason:'Independent historical readback'}}]}],
   blocker: {
-    kind: "authorization",
-    reason: "A separate owner decision is required.",
+    kind: "information",
+    reason: "Waiting for your response in this conversation.",
   },
-  authorizations: [{
-    id: "browser-approval",
-    tool: "mcp__amp__amp_restart_instance",
-    args: {
-      instanceId: "disposable-fixture"
-    },
-    risk: "consequential",
-    state: "pending",
-  }, ],
 });
 nc.data.set("provisional-criterion", {
   id: "provisional-criterion",
@@ -242,6 +223,9 @@ try {
   await page.locator("#token").fill("browser-fixture");
   await page.locator("#login-form").evaluate(form => form.requestSubmit());
   await page.locator(".message.assistant h2").waitFor();
+  assert.equal(await page.locator('.message.assistant').evaluateAll(nodes => nodes.every(n => n.textContent.trim())), true);
+  assert.equal(await page.locator('.copy-message').count(), await page.locator('.message.assistant').count());
+  checks.push('No empty assistant bubbles or orphan copy controls desktop');
   assert.equal(await page.locator(".message.assistant table").count(), 1);
   checks.push("Markdown heading and table");
   assert.match(await page.locator(".message.assistant pre code").innerText(), /const answer = 42/);
@@ -282,17 +266,7 @@ try {
   assert.equal(await page.locator('#messages').getByText('Internal controller state', {
     exact: false
   }).count(), 0);
-  await page.locator('#trace-panel>summary').click();
-  await page.locator('#traces details').filter({
-    has: page.getByText('goal-controller', {
-      exact: true
-    })
-  }).locator('summary').click();
-  await page.getByText('Internal controller state', {
-    exact: false
-  }).waitFor();
-  checks.push('Separate collapsible traces');
-  await page.locator('#trace-panel>summary').click();
+  checks.push('Internal controller state stays out of normal conversation history');
   const responses = ['Renamed conversation', 'Research'];
   const respond = dialog => dialog.accept(responses.shift());
   page.on('dialog', respond);
@@ -304,41 +278,24 @@ try {
   await page.locator('.goalrow').filter({
     hasText: 'Controlled pending operation'
   }).click();
-  await page.locator('.authorization').waitFor();
+  assert.equal(await page.locator('.authorization').count(), 0);
+  assert.match(await page.locator('.wait-strip').innerText(), /Waiting for your response/);
+  assert.equal(await page.locator('.wait-strip button').count(), 1);
   assert.equal(await page.getByRole('button', { name: 'Pause', exact: true }).count(), 1);
   assert.equal(await page.getByRole('button', { name: 'Cancel', exact: true }).count(), 1);
   assert.equal(await page.getByRole('button', { name: 'Complete', exact: true }).count(), 1);
-  assert.equal(await page.getByRole('button', { name: 'Stop', exact: true }).count(), 0);
-  assert.match(await page.locator('#goalcontent').innerText(), /Current description/i);
-  checks.push('Lifecycle labels, current description, and no Stop control');
-  const previousPlans=page.locator('details').filter({has:page.locator('summary', {hasText:'Previous plans'})});
-  await previousPlans.locator('summary').first().click();
-  const historical=previousPlans.locator('details').filter({has:page.locator('summary', {hasText:'Verification details'})});
-  assert.equal(await historical.count(),1);
-  await historical.locator('summary').click();
-  assert.match(await historical.innerText(),/historical-receipt/);
-  assert.match(await historical.innerText(),/historical-observation/);
-  assert.match(await historical.innerText(),/evidence_review/);
-  await previousPlans.locator('summary').first().click();
-  checks.push('Historical criterion verification remains inspectable');
+  assert.equal(await page.getByRole('button', { name: 'Approve', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Deny', exact: true }).count(), 0);
+  checks.push('No authorization controls; waiting chat link and lifecycle controls remain');
   assert.match(await page.locator('#goalcontent').innerText(), /Not yet accepted/);
   assert.equal(await page.locator('.child .goal-icon.completed').count(), 0);
-  checks.push('Provisional child status is not displayed as accepted verification');
+  assert.equal(await page.locator('.authorization').count(), 0);
+  checks.push('Current criterion status remains unaccepted and no historical authorization panel leaks');
   await page.screenshot({
     path: output + '/progress.png',
     fullPage: true
   });
-  checks.push('Blocked progress inspection');
-  assert.match(await page.locator('.authorization').innerText(), /owner-cli\.mjs approve/);
-  assert.equal(await page.getByRole('button', {
-    name: 'Approve',
-    exact: true
-  }).count(), 0);
-  await page.screenshot({
-    path: output + '/authorizations.png',
-    fullPage: true
-  });
-  checks.push('Independent owner approval instructions, no bearer approval button');
+  checks.push('Waiting progress inspection');
   await page.locator('#goalmeta button').click();
   await page.locator('.message.assistant h2').waitFor();
   await page.screenshot({
@@ -358,6 +315,10 @@ try {
   await page.locator('.goalrow').filter({
     hasText: 'Controlled pending operation'
   }).click();
+  await page.getByRole('button',{name:'Pause',exact:true}).click();
+  await page.getByRole('button',{name:'Resume',exact:true}).waitFor();
+  assert.equal(nc.data.get('browser-goal').paused,true);
+  checks.push('Pause persists and exposes the retained Resume button');
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', {
     name: 'Cancel',
@@ -439,6 +400,9 @@ try {
     path: output + '/narrow.png',
     fullPage: true
   });
+  assert.equal(await page.locator('.message.assistant').evaluateAll(nodes => nodes.every(n => n.textContent.trim())), true);
+  assert.equal(await page.locator('.copy-message').count(), await page.locator('.message.assistant').count());
+  checks.push('No empty assistant bubbles or orphan copy controls mobile');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   checks.push('Narrow viewport has no horizontal overflow');
   assert.equal(errors.length, 0, errors.join("\n"));
@@ -455,7 +419,6 @@ try {
           "narrow.png",
           "narrow-sidebar.png",
           "progress.png",
-          "authorizations.png",
         ],
       },
       null,

@@ -145,6 +145,8 @@ export class GoalQueue {
         }
       }
       const all = await this.conversationGoals(conversationId);
+      if(all.some(g=>(g.controlReceipts || []).some(r=>(r.requestId || r.key?.requestId)===requestId)))
+        throw Error("Request ID already belongs to a conversation control");
       const receipts = all.flatMap((goal) => goal.requestReceipts || []);
       const duplicate = receipts.find((receipt) => receipt.requestId === requestId);
       if (duplicate) {
@@ -184,6 +186,11 @@ export class GoalQueue {
           lease: null,
           model,
           revision: receipt.revision,
+          // Preserve the audit record, but never carry effect authority into a changed goal.
+          authorizations: (goal.authorizations || []).map(item =>
+            ["pending","approved"].includes(item.state)
+              ? {...item,state:"superseded",supersededAt:now,reason:"User goal revision changed"}
+              : item),
           requestReceipts: [...(goal.requestReceipts || (goal.requestId ? [{requestId:goal.requestId,requestHash:goal.requestHash,goalId:goal.id,revision:goal.revision||1}] : [])), receipt],
           requestHistory: [
             ...(goal.requestHistory || [{ requestId: goal.requestId, requestHash: goal.requestHash, text: goal.request, revision: 1 }]),
@@ -257,6 +264,8 @@ export class GoalQueue {
       const ready = goals.filter(
         (g) =>
           !terminal(g) &&
+          !(g.authorizations || []).some(item => item.state === "pending" &&
+            (item.goalRevision === undefined || item.goalRevision === (g.revision || 1))) &&
           (!g.paused || g.needsPlanning) &&
           (g.execution?.state !== "paused" || g.needsPlanning) &&
           !ambiguous.has(g.conversationId) &&

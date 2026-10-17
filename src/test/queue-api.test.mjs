@@ -184,7 +184,7 @@ test("admission during an overlapping empty recovery scan is not left waiting fo
   }
 });
 
-test("authorization decisions target the specified conversation goal rather than its latest execution pointer", async () => {
+test("retired authorization controls cannot decide even an exact conversation goal and still reject foreign targets", async () => {
   const f = await fixture();
   try {
     const { data: row } = await f.api("sessions", {});
@@ -202,11 +202,17 @@ test("authorization decisions target the specified conversation goal rather than
       requestId: "pending-one",
       approve: false,
     });
-    assert.equal(reply.status, 200);
+    assert.equal(reply.status, 409);
     assert.equal(
       (await f.nc.get("older-blocked")).authorizations[0].state,
-      "denied",
+      "pending",
     );
+    const {data: other}=await f.api("sessions",{});
+    const foreign=await f.api("sessions/"+other.id+"/authorizations",{
+      goalId:"older-blocked",requestId:"pending-one",approve:true
+    });
+    assert.equal(foreign.status,400);
+    assert.match(foreign.data.error,/Wrong conversation/);
   } finally {
     await new Promise((r) => f.server.close(r));
   }

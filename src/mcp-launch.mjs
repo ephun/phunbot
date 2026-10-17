@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { OwnerAuthority, secureAmpTransport } from "./owner-authority.mjs";
+import { secureAmpTransport } from "./owner-authority.mjs";
 const root = process.env.PHUNBOT_ROOT || "/data";
 const server = process.argv[2];
 if (!["amp", "unraid"].includes(server)) throw Error("Unrecognized MCP server");
@@ -21,7 +21,6 @@ if (server === "amp") {
     : { ampManagement: false };
   env.AMP_ALLOW_WRITES =
     policy.ampManagement === true &&
-    new OwnerAuthority(root).available() &&
     secureAmpTransport(env.AMP_URL)
       ? "true"
       : "false";

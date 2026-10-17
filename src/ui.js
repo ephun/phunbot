@@ -233,6 +233,7 @@ async function copyText(value) {
 }
 
 function renderMessage(m) {
+  if (m.role === 'assistant' && !String(m.text || '').trim()) return null;
   const n = el('div', '', `message ${m.role}`);
   if (m.role === 'user') {
     n.textContent = m.text;
@@ -262,17 +263,20 @@ function renderMessage(m) {
     link.rel = 'noopener noreferrer';
   }
   n.append(body);
-  const copy = el('button', 'Copy', 'copy-message');
-  copy.setAttribute('aria-label', 'Copy message');
-  copy.onclick = () => copyText(m.text).catch(notice);
-  n.append(copy);
+  if (String(m.text || '').trim()) {
+    const copy = el('button', 'Copy', 'copy-message');
+    copy.setAttribute('aria-label', 'Copy message');
+    copy.onclick = () => copyText(m.text).catch(notice);
+    n.append(copy);
+  }
   for (const pre of body.querySelectorAll('pre')) {
     const code = pre.querySelector('code');
-    if (!code) continue;
-    const copyCode = el('button', 'Copy', 'copy-code');
-    copyCode.setAttribute('aria-label', 'Copy code');
-    copyCode.onclick = () => copyText(code.textContent).catch(notice);
-    pre.append(copyCode);
+    if (code && code.textContent.trim()) {
+      const copyCode = el('button', 'Copy', 'copy-code');
+      copyCode.setAttribute('aria-label', 'Copy code');
+      copyCode.onclick = () => copyText(code.textContent).catch(notice);
+      pre.append(copyCode);
+    }
   }
   return n;
 }
@@ -321,7 +325,10 @@ async function showChat(id, {
     box = $('messages'),
     scroll = $('chatscroll'),
     atBottom = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 100;
-  box.replaceChildren(...projected.messages.map(renderMessage));
+  box.replaceChildren(...projected.messages
+    .filter(m => m.role !== 'assistant' || String(m.text || '').trim() || m.images?.length)
+    .map(renderMessage)
+    .filter(Boolean));
   $('trace-panel').hidden = !projected.traces.length;
   if (navigate) $('trace-panel').open = false;
   renderTrace(projected.traces);
@@ -514,7 +521,7 @@ async function showGoal(id, {
     strip.append(icon(status(g) === 'waiting' ? 'clock' : 'chat'));
     if (status(g) === 'waiting') message.textContent = g.blocker?.reason || `${executionLabel(g.execution?.state)}; retrying automatically.`;
     else {
-      message.append(document.createTextNode((g.blocker?.kind === 'authorization' ? 'Waiting for your approval' : 'Waiting for your answer') + ' in '));
+      message.append(document.createTextNode('Waiting for your response in '));
       if (c) {
         const link = el('button', c.title || c.name);
         link.onclick = () => showChat(String(c.id)).catch(notice);
@@ -541,34 +548,7 @@ async function showGoal(id, {
     criteria.append(item);
   }
   content.append(criteria);
-  if (g.planChanges.length) {
-    const changes = el('section', '', 'gsection plan-history');
-    changes.append(el('h3', 'Plan changes'));
-    for (const change of g.planChanges) {
-      const text = typeof change === 'string' ? change : change.summary || change.description || JSON.stringify(change);
-      changes.append(el('p', text, 'plan-change'));
-    }
-    content.append(changes);
-  }
-  if (g.planRevisions?.length) {
-    const revisions = document.createElement('details');
-    revisions.className = 'gsection';
-    revisions.dataset.key = g.id + ':revisions';
-    revisions.append(el('summary', 'Previous plans'));
-    for (const revision of g.planRevisions) {
-      const record = el('section');
-      record.append(el('h4', 'Revision ' + revision.revision), el('p', revision.previousDescription));
-      for (const criterion of revision.criteria || []) {
-        record.append(el('p', `${criterion.title} · ${criterion.disposition} · ${criterion.accepted ? 'Verified' : 'Not verified'}`));
-        const verification = document.createElement('details');
-        verification.append(el('summary', 'Verification details'));
-        verification.append(el('pre', JSON.stringify({criterionId:criterion.id,verifier:criterion.verifier,evidence:criterion.evidence || null},null,2)));
-        record.append(verification);
-      }
-      revisions.append(record);
-    }
-    content.append(revisions);
-  }
+
   if (g.childGoals?.length) {
     const children = el('section', '', 'gsection');
     children.append(el('h3', 'Child goals'));
@@ -590,13 +570,7 @@ async function showGoal(id, {
     else section.append(el('p', 'No execution activity yet.', 'empty'));
     content.append(section);
   }
-  const approvals = (g.authorizations || []).filter(a => a.state === 'pending');
-  if (approvals.length) {
-    const section = el('section', '', 'gsection');
-    section.append(el('h3', 'Pending authorization'));
-    approvals.forEach(a => section.append(authorization(g, a)));
-    content.append(section);
-  }
+
   const lifecycle = status(g);
   if (lifecycle === 'completed') {
     const basis = g.completionBasis || (g.completionKind === 'verified' ? 'Acceptance criteria verified' : g.completionKind === 'user-directed' ? 'Completed at user direction' : 'Completion recorded');
@@ -646,37 +620,7 @@ function renderActivity(event) {
   return row;
 }
 
-function authorization(g, a) {
-  const section = el('div', '', 'authorization');
-  section.append(el('strong', a.tool || 'Requested operation'), el('pre', JSON.stringify(a.args || {}, null, 2)));
-  section.append(el('p', 'Approval requires the separate owner command. Your conversation access token cannot authorize this operation.'));
-  const actions = el('div', '', 'dialog-actions');
-  if (/^[a-zA-Z0-9-]{1,200}$/.test(g.id) && /^[a-zA-Z0-9-]{1,200}$/.test(a.id)) {
-    const command = `node src/owner-cli.mjs approve ${g.id} ${a.id}${a.risk==='sensitive'?' --ack-sensitive':''}`;
-    section.append(el('pre', command));
-    const copy = el('button', 'Copy owner command');
-    copy.onclick = () => copyText(command).catch(notice);
-    actions.append(copy);
-  }
-  const deny = el('button', 'Deny');
-  deny.onclick = () => decideAuth(g, a, false);
-  actions.append(deny);
-  section.append(actions);
-  return section;
-}
-async function decideAuth(g, a, approve) {
-  try {
-    await api(`sessions/${encodeURIComponent(g.chat)}/authorizations`, 'POST', {
-      goalId: g.id,
-      requestId: a.id,
-      approve
-    });
-    await loadData();
-    await showGoal(g.id);
-  } catch (e) {
-    notice(e);
-  }
-}
+
 async function loadData() {
   const seq = S.dataSeq = (S.dataSeq || 0) + 1;
   const [chats, goals, folders] = await Promise.all([api('sessions'), api('ui/goals'), api('folders')]);

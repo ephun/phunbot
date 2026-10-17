@@ -2,7 +2,7 @@ import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
 import {prototypeFixture} from '../test/prototype-fixture.mjs';
 const f = await prototypeFixture();
-const browser = await chromium.launch({headless:true,args:['--no-sandbox']});
+const browser = await chromium.launch({headless:true,executablePath:process.env.PHUNBOT_CHROMIUM || undefined,args:['--no-sandbox']});
 try {
   const page = await browser.newPage({viewport:{width:1440,height:900},reducedMotion:'reduce'});
   await page.goto(f.base);

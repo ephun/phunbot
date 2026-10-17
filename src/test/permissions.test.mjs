@@ -173,7 +173,7 @@ test("raw shell execution remains denied at the authorization boundary", () => {
   assert.equal(classify("bash", {}).mode, "deny");
 });
 
-test("signed durable scope grants only the permitted operation, instance and confined artifact path", async () => {
+test("retired durable scopes cannot grant operations, other instances or artifact paths", async () => {
   const { p, root } = fixture();
   const scope = p.owner.sign({
     kind: "scope",
@@ -192,7 +192,7 @@ test("signed durable scope grants only the permitted operation, instance and con
   };
   assert.equal(
     (await p.check("mcp__amp__amp_upload_file", args, "g")).allowed,
-    true,
+    false,
   );
   assert.equal(
     (

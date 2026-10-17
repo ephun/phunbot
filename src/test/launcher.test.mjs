@@ -15,7 +15,7 @@ function launcher(root) {
   }
   return path.join(source, "mcp-launch.mjs");
 }
-test("central owner authority enables write registration without an adapter-level veto", () => {
+test("explicit management policy and secure transport register chat-authorizable writes without an owner key", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "launch-authorized-"));
   fs.mkdirSync(root + "/config/secrets", { recursive: true });
   fs.writeFileSync(
@@ -30,7 +30,8 @@ test("central owner authority enables write registration without an adapter-leve
     root + "/config/permissions.json",
     JSON.stringify({ ampManagement: true }),
   );
-  new OwnerAuthority(root).initialize();
+  // Authenticated chat requires no separate signing key.
+  assert.equal(fs.existsSync(root + "/config/owner-public.pem"),false);
   fs.mkdirSync(root + "/application/vendor/amp/dist", { recursive: true });
   fs.writeFileSync(
     root + "/application/vendor/amp/dist/index.js",

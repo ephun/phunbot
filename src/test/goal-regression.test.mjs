@@ -48,7 +48,7 @@ test('planner cannot request owner completion through its schema or result', asy
       return {content:[{type:'text', text:JSON.stringify({title:'Greeting',description:'Answer the introduction',criteria:[],subgoals:[],changes:[],execution:'complete'})}]};
     }
   };
-  await assert.rejects(() => planGoal(runtime, {provider:'fixture',roles:{reviewer:'deep'}}, {request:'Hi. Tell me who you are.'}, [], [], []), /Invalid structured planning decision/);
+  await assert.rejects(() => planGoal(runtime, {provider:'fixture',roles:{reviewer:'deep'}}, {request:'Hi. Tell me who you are.'}, [], [], []), e=>e.name==='PlanningDecisionError'&&e.diagnostics.issues.some(x=>x.path==='execution'&&x.code==='enum'));
 });
 
 test('failed pre-execution attempts remain visible without fabricated tools or reasoning', async () => {
