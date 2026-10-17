@@ -727,7 +727,7 @@ export class Controller {
     fs.mkdirSync(path.dirname(blobPath), { recursive: true });
     fs.writeFileSync(blobPath, serialized, { mode: 0o600 });
     const e = {
-      id: eventId, at: new Date().toISOString(), tool, revision: cp.currentRevision ?? 1,
+      id: eventId, at: new Date().toISOString(), tool, revision: cp.currentRevision,
       args: json(safeArgs), result: json(safeResult),
       evidenceBlob: { sha256: crypto.createHash("sha256").update(serialized).digest("hex"), bytes: Buffer.byteLength(serialized) }, error,
     };
