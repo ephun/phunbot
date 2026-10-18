@@ -650,7 +650,7 @@ export async function start({
           }),
       );
       pi.on("before_provider_request", (e) =>
-        limitPayload(e.payload, policy.limits.maxOutputTokens ?? 2048),
+        limitPayload(e.payload, policy.limits.maxOutputTokens ?? 2048, policy.inference || {}),
       );
       pi.on("tool_call", async (e) => {
         const deny = (reason) =>

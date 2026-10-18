@@ -474,6 +474,7 @@ try {
   assert.equal(informationalPlannerCalls,2);
   assert.notEqual(informationalPlannerRequests[0],informationalPlannerRequests[1]);
   assert.equal(informationalMemorySeen,true,'actual native execution must receive retrieved memory');
+  await wait(async()=> (await api('sessions/'+invalidRow.id+'/messages')).messages.filter(m=>m.role==='assistant'&&JSON.stringify(m.content).includes('enjoy astronomy')).length===1,60000);
   const informationalMessages=(await api('sessions/'+invalidRow.id+'/messages')).messages;
   assert.equal(informationalMessages.filter(m=>m.role==='assistant'&&JSON.stringify(m.content).includes('enjoy astronomy')).length,1);
   assert.equal([...data.values()].filter(g=>g.kind==='goal'&&g.conversationId===invalidRow.id&&!['COMPLETED','CANCELLED'].includes(g.status)).length,0);
@@ -487,6 +488,7 @@ try {
   assert.equal(informationalPlannerCalls,2);
   assert.equal(informationalMemorySeen,true);
   assert.equal(data.get(firstQuestion.goalId).completionKind,'verified');
+  await wait(async()=> (await api('sessions/'+firstQuestionRow.id+'/messages')).messages.filter(m=>m.role==='assistant'&&JSON.stringify(m.content).includes('enjoy astronomy')).length===1,60000);
   const firstQuestionMessages=(await api('sessions/'+firstQuestionRow.id+'/messages')).messages;
   assert.equal(firstQuestionMessages.filter(m=>m.role==='assistant'&&JSON.stringify(m.content).includes('enjoy astronomy')).length,1);
   assert.equal([...data.values()].filter(g=>g.kind==='goal'&&g.conversationId===firstQuestionRow.id).length,1);

@@ -323,16 +323,15 @@ export class GoalQueue {
   }
 
   async release(id, token, execution, now = Date.now()) {
-    const goal = await this.nc.get(id);
-    if (terminal(goal) || goal.lease?.token !== token) return goal;
-    if (goal.paused) execution = {state:"paused",nextRunAt:0};
-    return this.nc.put(
-      {
-        ...goal,
-        lease: null,
-        execution: { ...goal.execution, ...execution, endedAt: now },
-      },
-      goal.etag,
-    );
+    for(let attempt=0;attempt<5;attempt++) {
+      const goal = await this.nc.get(id);
+      if (terminal(goal) || goal.lease?.token !== token) return goal;
+      const nextExecution=goal.paused?{state:"paused",nextRunAt:0}:execution;
+      try {
+        return await this.nc.put({...goal,lease:null,execution:{...goal.execution,...nextExecution,endedAt:now}},goal.etag);
+      } catch(error) {
+        if(!conflict(error)||attempt===4)throw error;
+      }
+    }
   }
 }
