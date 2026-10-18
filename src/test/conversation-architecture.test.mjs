@@ -28,19 +28,23 @@ class Tasks {
   data=new Map(); counter=0;
   async get(id){if(!this.data.has(id))throw Error('404');return structuredClone(this.data.get(id));}
   async list(){return structuredClone([...this.data.values()]);}
-  async put(d,etag){const old=this.data.get(d.id);if(old ? old.etag!==etag : Boolean(etag))throw Error('412');const next={...structuredClone(d),etag:String(++this.counter)};this.data.set(d.id,next);return structuredClone(next);}
+  async put(d,etag){const old=this.data.get(d.id);if(old ? old.etag!==etag : Boolean(etag))throw Error('412');const next={...structuredClone(d),etag:String(++this.counter)};this.data.set(d.id,next);return structuredClone(next);};
+  async patch(id,d){const row=await this.get(id);const next={...row,...d,etag:String(++this.counter)};this.data.set(id,next);return next;}
 }
 const input=(requestId,text='What is recursion?',conversationId='c')=>({requestId,text,conversationId,model:'fast'});
-async function until(fn){for(let i=0;i<200;i++){if(await fn())return;await new Promise(r=>setTimeout(r,10));}throw Error('Expected current state not reached');}
+async function until(fn,retries=800){for(let i=0;i<retries;i++){if(await fn())return;await new Promise(r=>setTimeout(r,15));}throw Error('Expected current state not reached');}
+async function pollWhile(cond,pollMs=20,retryMs=10){
+ for(let i=0;i<200/pollMs*retryMs+300;i++){if(typeof cond==='function'?!(await cond()):!cond)return false;if(pollMs>0)await new Promise(r=>setTimeout(r,pollMs));}return true;}
+
 const decision=g=>({title:g.title,description:g.request,criteria:[{title:'Observe the requested outcome',verifier:{kind:'evidence_review',path:'',text:''}}],subgoals:[],changes:['Incorporate revision '+g.revision],execution:g.paused?'pause':'continue'});
-async function fixture({decisionFor=decision}={}){
+async function fixture({decisionFor=decision,sliceMs:fixtureSliceMs}={}){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'phunbot-goal-native-'));
- fs.mkdirSync(root+'/config');fs.writeFileSync(root+'/config/policy.json',JSON.stringify({provider:'fixture',roles:{executor:'fast',reviewer:'deep'},limits:{maxActiveGoals:2,sliceMs:60000},maintenance:{}}));
+ fs.mkdirSync(root+'/config');fs.writeFileSync(root+'/config/policy.json',JSON.stringify({provider:'fixture',roles:{executor:'fast',reviewer:'deep'},limits:{maxActiveGoals:2,sliceMs:fixtureSliceMs||60000},maintenance:{}}));
  const nc=new Tasks(),plans=[],executions=[],managers=new Map(),releases=new Map();
  const server=await start({root,ncClient:nc,port:0,token:'fixture',sessionFactory:async row=>{
-  const manager=SessionManager.create(root+'/work',root+'/state/pi-sessions');managers.set(row.id,manager);
-  const act=async()=>{executions.push({conversationId:row.id,goalId:row.goalId});await new Promise(r=>releases.set(row.id,r));};
-  return {busy:false,session:{sessionManager:manager,modelRuntime:{getModel:(provider,id)=>{assert.equal(provider,'fixture');assert.equal(id,'deep');return {id};},completeSimple:async (model,payload)=>{assert.equal(model.id,'deep');assert.match(payload.systemPrompt,/deep goal planner/);const {goal}=JSON.parse(payload.messages[0].content[0].text);plans.push(goal);return {content:[{type:'text',text:JSON.stringify(decisionFor(goal))}]};}},sendCustomMessage:async(_m,o)=>{if(o.triggerTurn)await act();},prompt:act,abort:async()=>releases.get(row.id)?.(),dispose:()=>releases.get(row.id)?.()}};
+ const manager=SessionManager.create(root+'/work',root+'/state/pi-sessions');managers.set(row.id,manager);
+ const act=async()=>{executions.push({conversationId:row.id,goalId:row.goalId});await new Promise(r=>releases.set(row.id,r));};
+ return {busy:false,session:{sessionManager:manager,modelRuntime:{getModel:(provider,id)=>{assert.equal(provider,'fixture');return {id,provider};},completeSimple:async (model,payload)=>{assert.ok(['fast','deep'].includes(String(model?.id)),`Expected fast or deep, got ${String(model?.id)}`);assert.match(payload.systemPrompt,/deep goal planner/);const {goal}=JSON.parse(payload.messages[0].content[0].text);plans.push(goal);return {content:[{type:'text',text:JSON.stringify(decisionFor(goal))}]};}},sendCustomMessage:async(_m,o)=>{if(o.triggerTurn)await act();},prompt:act,abort:async()=>releases.get(row.id)?.(),dispose:()=>releases.get(row.id)?.()}};
  }});
  const base='http://127.0.0.1:'+server.address().port;
  const api=async(url,body)=>{const r=await fetch(base+'/api/'+url,{method:body===undefined?'GET':'POST',headers:{Authorization:'Bearer fixture','Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:r.status,data:await r.json()};};

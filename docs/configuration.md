@@ -17,7 +17,15 @@ The adapter does not follow redirects and rejects cross-origin request paths, so
 
 ## Model responsibilities
 
-`roles.executor` selects normal execution; `roles.reviewer` selects independent deep verification and, by default, deep planning. An explicit `roles.planner` may select the configured deep planner separately. Planning and verification are separate operations even when they use the same model. The controller applies structured planning decisions and enforces lifecycle/lease/revision gates. See [goal lifecycle](goal-lifecycle.md).
+`roles.planner`, `roles.executor`, and `roles.reviewer` default to `fleet-fast`. Planning and verification remain separate invocations with independently constructed contexts, even when they use identical weights. `roles.embedding` remains `fleet-embed`. Keep `roles.vision` only for a capability-verified image route; names alone do not prove vision support or weight identity. Coding does not automatically select `fleet-code`, and `fleet-deep` is not a default planner or fallback. The controller applies structured planning decisions and enforces lifecycle/lease/revision gates. See [goal lifecycle](goal-lifecycle.md).
+
+`planning.identityNote` and `planning.procedureNote` name required Markdown notes, loaded deterministically before planning and supplied to execution. Missing configured notes suspend planning rather than allowing an identity/context-free plan. Seed `goal-planning-procedure` from [the reviewed procedure](planning-procedure.md) through the existing Memory API; authorized later revisions remain possible. Memory observations cannot override schemas, permissions, or lifecycle authority.
+
+`planning.enableThinking: false` explicitly requests `chat_template_kwargs.enable_thinking=false` for Chat Completions planning and answer review on the verified supporting backend. Responses payloads never receive this chat-only field. This setting is opt-in and is not an assumption that every backend supports it. `planning.timeoutMs` bounds the complete two-attempt planning operation. Attempts retain sanitized metadata in execution checkpoints; semantic failures receive field-level repair feedback, whereas permanent HTTP rejections, programming exceptions, cancellation, and expired deadlines do not issue an unchanged second request.
+
+Wire verifier variants match deterministic validation: `file_contains` has nonempty path/text; `answer_quality` and `evidence_review` have empty path/text. External/composite goals restrict answer-quality verification using the same outcome contract as the controller. Required subgoal `parentId` is nullable, not optional. Original requests remain immutable in `request`/`requestHistory`; planner descriptions are interpretations only.
+
+`recovery.heldRevisions` is an optional deployment safety map of goal ID to highest held revision. It prevents automatic claims of pre-cutover work without changing authoritative goal status or erasing evidence. New substantive instructions create a higher revision and release only that goal. An operator may remove a hold after reconciliation; deployment must not silently replay historical tasks.
 
 ## AMP uploads
 

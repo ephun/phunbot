@@ -163,7 +163,7 @@ const fixture = http.createServer(async (req, res) => {
         }
         return stream(res,JSON.stringify({title:goal.title,description:goal.request,criteria:[{title:'Answer the controlled recursion question',verifier:{kind:['denial','authorization'].includes(mode)?'evidence_review':'answer_quality',path:'',text:''}}],subgoals:[],changes:['Controlled native deep planning'],execution:'continue'}));
       }
-      if (system.includes('Independently review an actual native Pi informational answer')) return stream(res,JSON.stringify({pass:true,reason:'Controlled native reviewer checked the fixture recursion answer'}));
+      if (system.includes('Independently review the canonical published reply or native final output')) return stream(res,JSON.stringify({pass:true,reason:'Controlled native reviewer checked the fixture recursion answer'}));
       if(mode==='informational') {
         informationalMemorySeen ||= JSON.stringify(b.messages).includes('The synthetic user enjoys astronomy');
         return stream(res,'Your saved preferences say you enjoy astronomy. I do not have other personal details in this controlled context, so I will not guess about your background.');
@@ -294,7 +294,8 @@ try {
     requestId: "native-outage",
     text: "What is recursion?",
   });
-  await wait(() => cp(g.goalId).state === "transient_failure");
+  await wait(() => cp(g.goalId).state === "planner_unavailable");
+  assert.equal(cp(g.goalId).planningAttempts.length,2);
   report.outageBefore = {
     attempts,
     state: cp(g.goalId).state,
@@ -303,11 +304,13 @@ try {
   };
   assert.equal(data.get(g.goalId).status, "NEEDS-ACTION");
   mode = "answer";
+  const outageRecovery=await api('sessions/'+row.id+'/send',{requestId:'native-outage-recovery',text:'What is recursion?'});
+  assert.equal(outageRecovery.goalId,g.goalId,'Explicit retry revises the same open goal');
   await wait(async () => {
     await api("resume", {});
     return data.get(g.goalId)?.status === "COMPLETED";
   });
-  report.checks.nativeProvider503BackoffAndSameGoalRecovery = true;
+  report.checks.nativeProvider503BoundedSuspensionAndExplicitSameGoalRecovery = true;
   report.outageGoalId = g.goalId;
   const delayed = await api("sessions", {
     title: "Delayed native cancellation",

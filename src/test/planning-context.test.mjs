@@ -20,6 +20,6 @@ test('follow-up planning uses visible conversation rather than runtime prompts a
  assert.equal(seen.conversationHistory.length,3);
  assert.equal(seen.conversationHistory[1].content,'Hi! 👋');
  assert.deepEqual(seen.conversationHistory[2].content[1],{type:'image_metadata',mimeType:'image/png'});
- assert.deepEqual(seen.executionEvidence,evidence);
+ assert.deepEqual(seen.executionEvidence,{omitted:0,events:[{id:'real-evidence',tool:'read',error:false,resultPreview:'Useful observed result'}]});
  assert.deepEqual(seen.goal.requestHistory.map(r=>r.text),['Hi.','Huh?']);
 });

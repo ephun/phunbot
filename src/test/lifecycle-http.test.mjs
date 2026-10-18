@@ -1,0 +1,30 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';
+import {SessionManager} from '@earendil-works/pi-coding-agent';import {start} from '../app.mjs';import {Memory} from '../memory.mjs';
+class Tasks{data=new Map();v=0;async get(id){if(!this.data.has(id))throw Error('404');return structuredClone(this.data.get(id));}async list(){return structuredClone([...this.data.values()]);}async put(d,etag){const old=this.data.get(d.id);if(old&&old.etag!==etag)throw Error('412');const x={...structuredClone(d),etag:String(++this.v)};this.data.set(d.id,x);return structuredClone(x);}}
+for(const [name,request,answer]of [['greeting','Hi.','Hello!'],['identity','Tell me who you are.','I am phunbot, your personal assistant.'],['factual','What is recursion?','Recursion solves smaller instances of a problem until a base case.'],['memory','What do you know about me?','You like tea.'],['tool','Read the hostname and report it.','The fixture hostname is fixture-host.'],['survey','Conduct a read-only survey of the homeserver, report findings and record distilled knowledge in memory.','The fixture server has fixture-host and a test workspace.']])test('complete HTTP goal lifecycle: '+name,async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'phunbot-lifecycle-'));fs.mkdirSync(root+'/config');fs.mkdirSync(root+'/work');fs.writeFileSync(root+'/work/hostname','fixture-host');
+ fs.writeFileSync(root+'/config/policy.json',JSON.stringify({provider:'fixture',roles:{planner:'fast',executor:'fast',reviewer:'fast'},planning:{identityNote:'phunbot-identity',procedureNote:'goal-planning-procedure'},limits:{maxActiveGoals:1,sliceMs:10000},maintenance:{}}));
+ const memory=new Memory(root);memory.put('phunbot-identity','Identity','phunbot is a personal assistant.','fixture');memory.put('goal-planning-procedure','Planning','Use the simplest sufficient plan and cover every deliverable.','fixture');memory.put('user-facts','User facts','You like tea.','fixture');
+ const nc=new Tasks();let plans=0,reviews=0,server;
+ try{
+ server=await start({root,ncClient:nc,port:0,token:'fixture',sessionFactory:async(row,{controller})=>{
+  const manager=SessionManager.create(root+'/work',root+'/state/pi-sessions');
+  const execute=async()=>{const g=await nc.get(row.goalId);assert.equal(g.planReady,true);assert.equal(g.request,request);
+   if(['tool','survey'].includes(name)){const read=fs.readFileSync(root+'/work/hostname','utf8');controller.record(g.id,'read',{path:'hostname'},{hostname:read});if(name==='survey'){memory.put('fixture-survey','Survey','The isolated fixture has fixture-host.','fixture read');controller.record(g.id,'memory_observe',{id:'fixture-survey'},{id:'fixture-survey',text:memory.get('fixture-survey')});}}
+   controller.record(g.id,'assistant_output',{}, {source:'Actual Pi assistant output; not independent proof of external state',text:answer,final:true});
+   if(['tool','survey'].includes(name))for(const id of g.expectedChildIds)await controller.verify(g.id,id,async(t,events)=>{assert.equal(fs.readFileSync(root+'/work/hostname','utf8'),'fixture-host');assert.ok(events.some(e=>e.tool==='read'));if(name==='survey')assert.ok(memory.get('fixture-survey').includes('fixture-host'));return {pass:true,reason:'Independent fixture file and memory readback',evidenceIds:events.filter(e=>['read','memory_observe'].includes(e.tool)).map(e=>e.id)};});
+  };
+  return {busy:false,session:{sessionManager:manager,getAllTools:()=>[{name:'read',description:'Read a workspace file'},{name:'memory_observe',description:'Store distilled knowledge'}],modelRuntime:{getModel:()=>({id:'fast'}),completeSimple:async(_m,c)=>{const b=JSON.parse(c.messages[0].content[0].text);
+   if(b.currentCriteria){plans++;assert.equal(b.operationalContext.identity.id,'phunbot-identity');assert.ok(b.operationalContext.procedure.excerpt);assert.ok(b.operationalContext.capabilities.some(t=>t.name==='read'));
+    const titles=name==='survey'?['Inventory observed','Findings reported','Distilled knowledge recorded']:[request];return {stopReason:'stop',content:[{type:'text',text:JSON.stringify({title:request,description:request,criteria:titles.map(title=>({title,verifier:{kind:['tool','survey'].includes(name)?'evidence_review':'answer_quality',path:'',text:''}})),subgoals:[],changes:[],execution:'continue'})}]};}
+   reviews++;if(name==='memory')assert.ok(b.supportingEvidence.some(n=>n.id==='user-facts'&&n.excerpt.includes('tea')));if(name==='identity')assert.equal(b.identity.id,'phunbot-identity');return {stopReason:'stop',content:[{type:'text',text:JSON.stringify({pass:true,reason:'Separate fixture review checks supplied evidence'})}]};
+  }},sendCustomMessage:async(_m,o)=>{if(o.triggerTurn)await execute();},prompt:execute,abort:async()=>{},dispose:()=>{}}};
+ }});
+ const base='http://127.0.0.1:'+server.address().port;const api=async(url,b)=>{const r=await fetch(base+'/api/'+url,{method:b===undefined?'GET':'POST',headers:{Authorization:'Bearer fixture','Content-Type':'application/json'},...(b===undefined?{}:{body:JSON.stringify(b)})});assert.ok(r.ok,await r.clone().text());return r.json();};
+ const row=await api('sessions',{});const accepted=await api('sessions/'+row.id+'/send',{text:request,requestId:'fixture-'+name});
+ let goal;for(let i=0;i<200;i++){goal=await nc.get(accepted.goalId);if(goal.status==='COMPLETED')break;await new Promise(r=>setTimeout(r,10));}
+ assert.equal(goal.status,'COMPLETED',JSON.stringify({goal,state:fs.existsSync(root+'/state/executions/'+goal.id+'.json')?JSON.parse(fs.readFileSync(root+'/state/executions/'+goal.id+'.json')):null}));assert.equal(goal.completionKind,'verified');assert.equal(plans,1);if(!['tool','survey'].includes(name))assert.ok(reviews>0);
+ for(const id of goal.expectedChildIds){const t=await nc.get(id);assert.equal(t.status,'COMPLETED');assert.ok(t.evidence.verifiedAt);}
+ const messages=await api('sessions/'+row.id+'/messages');assert.ok(messages.messages.some(m=>m.content===answer));
+ }finally{if(server)await new Promise(r=>server.close(r));fs.rmSync(root,{recursive:true,force:true});}
+});

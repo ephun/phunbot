@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { redactCredentialText } from "./privacy.mjs";
-import { checkAnswer, outcomeContract } from "./outcomes.mjs";
+import { checkAnswer, outcomeContract, answerOnlyGoal } from "./outcomes.mjs";
 import { blockerKinds } from "./tool-schemas.mjs";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -214,6 +214,7 @@ export class Controller {
       (e) =>
         !e.error &&
         ![
+          "memory_context",
           "assistant_output",
           "goal_state",
           "goal_plan",
@@ -367,8 +368,7 @@ export class Controller {
       }
       if (
         clean.some((t) => t.verifier.kind === "answer_quality") &&
-        !(g.requestHistory?.length ? g.requestHistory : [{text:g.request,images:this.checkpoint(id).inputImages}]).every(request =>
-          ["answer", "arithmetic"].includes(outcomeContract(request.text, Boolean(request.images?.length)).kind))
+        !answerOnlyGoal(g,this.checkpoint(id).inputImages)
       )
         throw Error(
           "Answer contract cannot verify an external or composite outcome; actual evidence required",
@@ -461,6 +461,9 @@ export class Controller {
     if (decision.execution === "pause" && !before.paused) {
       throw Error("Pause requires an authenticated owner action, not a planning decision");
     }
+    if (decision.execution === "resume" && before.paused) {
+      throw Error("Resume requires an authenticated owner action, not a planning decision");
+    }
     const clean = this.validateCriteria(decision.criteria);
     const previous = (await this.nc.list(signal)).filter(t => t.kind === "criterion" && t.parent === id && (!before.expectedChildIds || before.expectedChildIds.includes(t.id)));
     await this.plan(id, clean, signal, undefined, revision);
@@ -469,7 +472,7 @@ export class Controller {
     if ((current.revision || 1) !== revision) throw Error("Stale planning decision");
     const paused = decision.execution === "pause" || (before.paused && !["resume", "complete"].includes(decision.execution));
     const next = {
-      ...current, title: decision.title, description: decision.description, request: decision.description,
+      ...current, title: decision.title, description: decision.description,
       subgoals: decision.subgoals, needsPlanning: false, paused,
       planChanges: decision.changes, plannedStrategyGeneration: this.checkpoint(id).strategyGeneration || 0,
       planRevisions: [...(before.planRevisions || []), {
@@ -567,7 +570,8 @@ export class Controller {
               "goal_state",
               "goal_verify",
               "goal_unblock",
-              "assistant_output",
+              "memory_context",
+          "assistant_output",
             ].includes(e.tool) &&
             (e.tool !== "goal_blocker" || e.error === true),
         );
@@ -683,7 +687,8 @@ export class Controller {
               "goal_state",
               "goal_verify",
               "goal_unblock",
-              "assistant_output",
+              "memory_context",
+          "assistant_output",
             ].includes(e.tool) &&
             (e.tool !== "goal_blocker" || e.error === true),
         )
@@ -756,7 +761,8 @@ export class Controller {
             "goal_verify",
             "goal_blocker",
             "goal_unblock",
-            "assistant_output",
+            "memory_context",
+          "assistant_output",
           ].includes(e.tool),
       );
       if (!events.length || !review)
@@ -829,7 +835,8 @@ export class Controller {
             "goal_verify",
             "goal_blocker",
             "goal_unblock",
-            "assistant_output",
+            "memory_context",
+          "assistant_output",
           ].includes(e.tool),
       );
       const unknownIds = p.evidenceIds?.filter(

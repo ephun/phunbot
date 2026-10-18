@@ -1,3 +1,7 @@
+export function answerOnlyGoal(goal, inputImages=[]) {
+ const requests=goal.requestHistory?.length?goal.requestHistory:[{text:goal.request,images:inputImages}];
+ return requests.every(r=>['answer','arithmetic'].includes(outcomeContract(r.text || '',Boolean(r.images?.length || r.attachmentCount)) .kind));
+}
 // Conservative admission: uncertain/composite requests retain explicit criteria.
 const external =
   /\b(server|service|instance|config\w*|restart\w*|stop|start|delete|remove|backup|file|write|create|generate|upload|download|save|send|email|install|update|research|search|latest|current|today|now|weather|price|cite|sources?|my|our|your|cloud|amp|infrastructure)\b/i;

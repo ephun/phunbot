@@ -1,9 +1,9 @@
 import {parseObject} from './review-output.mjs';
-const string=(max,min=1)=>({type:'string',minLength:min,maxLength:max});
+const string=(max,min=1)=>({type:'string',minLength:min,maxLength:max,...(min?{pattern:'\\S'}:{})});
 const object=properties=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false});
 export const planningProperties={
  title:string(300),description:string(30000),
- criteria:{type:'array',minItems:1,maxItems:20,items:object({title:string(1000),verifier:object({kind:{type:'string',enum:['file_contains','evidence_review','answer_quality']},path:string(3000,0),text:string(30000,0)})})},
+ criteria:{type:'array',minItems:1,maxItems:20,items:object({title:string(1000),verifier:{anyOf:[object({kind:{type:'string',enum:['file_contains']},path:string(3000),text:string(30000)}),object({kind:{type:'string',enum:['evidence_review','answer_quality']},path:{type:'string',enum:['']},text:{type:'string',enum:['']}})]}})},
  subgoals:{type:'array',maxItems:50,items:object({id:{...string(80),pattern:'^[a-zA-Z0-9-]{1,80}$'},title:string(1000),parentId:{type:['string','null']}})},
  changes:{type:'array',maxItems:50,items:string(3000,0)},execution:{type:'string',enum:['continue','pause','resume']}
 };
@@ -11,9 +11,14 @@ export class PlanningDecisionError extends Error {
  constructor(issues,attempts=1){super('The deep planner could not produce a valid plan');this.name='PlanningDecisionError';this.code='invalid_planning_decision';this.diagnostics={attempts,issues:issues.slice(0,30)};}
 }
 function validate(value,schema,path,issues){
+ if(schema.anyOf){
+  const branch=schema.anyOf.find(s=>s.properties?.kind?.enum?.includes(value?.kind));
+  if(!branch){issues.push({path,code:'enum'});return;}
+  validate(value,branch,path,issues);return;
+ }
  const type=value===null?'null':Array.isArray(value)?'array':typeof value;
  if(!(Array.isArray(schema.type)?schema.type:[schema.type]).includes(type)){issues.push({path,code:'type'});return;}
- if(schema.enum&&!schema.enum.includes(value))issues.push({path,code:'enum'});
+ if(schema.enum&&!schema.enum.includes(value))issues.push(schema.enum.length===1&&schema.enum[0]===''?{path:path.replace(/\.(path|text)$/,''),code:'verifier_fields'}:{path,code:'enum'});
  if(type==='object'){
   if(Object.keys(value).some(k=>!Object.hasOwn(schema.properties,k)))issues.push({path,code:'unexpected_field'});
   for(const k of schema.required||[])if(!Object.hasOwn(value,k))issues.push({path:path?path+'.'+k:k,code:'required'});

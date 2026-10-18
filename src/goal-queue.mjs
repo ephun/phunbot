@@ -234,7 +234,7 @@ export class GoalQueue {
     }));
   }
 
-  async claim(now = Date.now(), conversationIds) {
+  async claim(now = Date.now(), conversationIds, heldRevisions = {}) {
     // One short CAS-guarded dispatcher transaction prevents cross-goal races.
     const lockId = "phunbot-dispatch-lease";
     const oldLock = await this.optional(lockId);
@@ -264,6 +264,7 @@ export class GoalQueue {
       const ready = goals.filter(
         (g) =>
           !terminal(g) &&
+          !(Number.isInteger(heldRevisions[g.id]) && (g.revision || 1) <= heldRevisions[g.id]) &&
           !(g.authorizations || []).some(item => item.state === "pending" &&
             (item.goalRevision === undefined || item.goalRevision === (g.revision || 1))) &&
           (!g.paused || g.needsPlanning) &&

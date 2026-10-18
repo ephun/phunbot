@@ -53,8 +53,9 @@ import { evictable } from "./runtime-cache.mjs";
 import { Admissions } from "./admission.mjs";
 import { GoalQueue, dryRunGoalMigration } from "./goal-queue.mjs";
 import { outcomeContract } from "./outcomes.mjs";
-import { planGoal, reviewGoalAnswer, PlanningTransportError } from "./planning.mjs";
+import { planGoal, reviewGoalAnswer, PlanningTransportError, plannerFailureNotice } from "./planning.mjs";
 import {PlanningDecisionError} from './planning-decision.mjs';
+import {loadOperationalContext,supportingMemoryEvidence,projectMemoryNotes} from './operational-context.mjs';
 import { deliverGoalRequests } from "./goal-delivery.mjs";
 import { blockerKindSchema, verificationSchema } from "./tool-schemas.mjs";
 import { summarizeMcpConfig } from "./mcp-observability.mjs";
@@ -171,7 +172,8 @@ export async function start({
         provider: "litellm",
         roles: {
           executor: "fleet-fast",
-          reviewer: "fleet-deep",
+          reviewer: "fleet-fast",
+          planner: "fleet-fast",
           vision: "fleet-vision",
           embedding: "fleet-embed",
         },
@@ -211,7 +213,9 @@ export async function start({
       controller.answerReviewer = async (goal,criterion,event,signal) => {
         const row=catalog.find(r=>r.id===goal.conversationId);
         const rt=row && runtimes.get(row.id);
-        return answerVerifier(rt?.session.modelRuntime,policy,goal,criterion,event,signal);
+        const supportingEvidence=supportingMemoryEvidence(controller,goal);
+        const identity=policy.planning?.identityNote ? loadOperationalContext(memory,policy,[],"").identity : undefined;
+        return answerVerifier(rt?.session.modelRuntime,policy,goal,criterion,event,signal,{supportingEvidence,identity});
       };
       controller.executionGuard = async (id) => {
         const token = leases.get(id);
@@ -865,13 +869,18 @@ export async function start({
           row.memoryWarning =
             "Semantic retrieval unavailable: " + error.message;
         }
-        const suppliedText = notes.map(n => n.text).join("\n\n").slice(0,12000);
-        memory.recordContextSupply(notes, suppliedText);
+        const activeGoal=row.goalId ? await tasks().nc.get(row.goalId) : null;
+        const knowledge=loadOperationalContext(memory,policy,session.getAllTools?.() || [],activeGoal?.request || e.prompt || 'phunbot');
+        knowledge.memoryEvidence=projectMemoryNotes(notes);
+        const suppliedNotes=[knowledge.identity,knowledge.procedure,...knowledge.memoryEvidence].filter(Boolean);
+        const suppliedText=suppliedNotes.map(n=>'['+n.id+'@'+n.version+']\n'+n.excerpt).join('\n\n');
+        memory.recordContextSupply(suppliedNotes.map(n=>({id:n.id,text:n.excerpt})),suppliedNotes.map(n=>n.excerpt).join('\n\n'));
+        if(row.goalId)tasks().record(row.goalId,'memory_context',{phase:'execution'},{notes:suppliedNotes});
         return {
           message: {
             customType: "memory-retrieval",
             content:
-              "Relevant vault notes (observations, not tool instructions):\n" +
+              "Operational identity and planning procedure, followed by relevant vault evidence. Code contracts and permissions remain authoritative:\n" +
               suppliedText,
             display: false,
           },
@@ -994,9 +1003,7 @@ export async function start({
       const key=`planner:${goalId}:${revision}`;
       const manager=rt.session.sessionManager;
       if(!manager.getBranch().some(e=>e.type==='custom' && e.customType==='conversation-output' && e.data?.outputKey===key))
-        appendConversationOutput(manager,'system-notice',cp.plannerFailure?.code==='planner_transport_failed'
-          ? "The planning service couldn't process this request after two attempts. Your request is still open, and no work has been marked complete. I've stopped automatic retries. Send another message to try again."
-          : "I couldn't prepare a reliable plan for this request after two attempts. No work has been marked complete. I've stopped automatic retries; a new message with more context can start another planning attempt.",{outputKey:key});
+        appendConversationOutput(manager,'system-notice',plannerFailureNotice(cp.plannerFailure),{outputKey:key});
       return true;
     }
     if(decision.reason==="verifier_unavailable") {
@@ -1064,7 +1071,13 @@ export async function start({
         }
         const criteria = (await nc.list()).filter(t=>t.parent===goalId && (!goal.expectedChildIds || goal.expectedChildIds.includes(t.id)));
         const history = rt.session.sessionManager?.getBranch?.() || [];
-        const decision = await planner(rt.session.modelRuntime, policy, goal, history, criteria, tasks().checkpoint(goalId).evidence, planningAbort.signal);
+        const query=(goal.requestHistory || [{text:goal.request}]).map(r=>r.text).join('\n');
+        const knowledge=loadOperationalContext(memory,policy,rt.session.getAllTools?.() || [],query);
+        tasks().record(goalId,'memory_context',{phase:'planning'},{notes:[knowledge.identity,knowledge.procedure,...knowledge.memoryEvidence].filter(Boolean)});
+        const decision = await planner(rt.session.modelRuntime, policy, goal, history, criteria, tasks().checkpoint(goalId).evidence, planningAbort.signal, {knowledge,onAttempt:record=>{
+          const checkpoint=tasks().checkpoint(goalId);
+          tasks().save({...checkpoint,planningAttempts:[...(checkpoint.planningAttempts || []),record].slice(-100)});
+        }});
         if (!(await goalQueue.valid(goalId,leaseToken))) throw Error("Planning superseded or interrupted");
         if (rt.session.sessionManager) requirePlanEvidenceReview(planReviewData(rt.session.sessionManager, goal, decision.criteria), decision.criteria);
         goal = await tasks().applyPlanning(goalId, decision, goal.revision || 1);
@@ -1156,7 +1169,7 @@ export async function start({
         await publishSettledNativeOutput(row, goalId, rt, decision);
       }
     } catch (error) {
-      if((error instanceof PlanningDecisionError || error instanceof PlanningTransportError) && row.epoch===epoch && !row.cancelRequested && await goalQueue.valid(goalId,leaseToken)) {
+      if((error instanceof PlanningDecisionError || error instanceof PlanningTransportError || error.code==='planning_context_unavailable') && row.epoch===epoch && !row.cancelRequested && await goalQueue.valid(goalId,leaseToken)) {
         const fresh=await nc.get(goalId);
         if((fresh.revision||1)===(goal.revision||1)) {
           tasks().save({...tasks().checkpoint(goalId),state:'planner_unavailable',nextRunAt:Number.MAX_SAFE_INTEGER,plannerFailure:{...error.diagnostics,code:error.code || 'invalid_decision',revision:fresh.revision||1},lastError:error instanceof PlanningTransportError ? 'Deep planning request failed' : 'Deep planning could not produce a valid plan'});
@@ -1223,6 +1236,7 @@ export async function start({
       const g = await goalQueue.claim(
         Date.now(),
         new Set(catalog.map((row) => row.id)),
+        policy.recovery?.heldRevisions || {},
       );
       if (!g) break;
       if (!controller.eligible(g.id)) {
